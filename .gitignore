@@ -1,3 +1,4 @@
+# https://stackoverflow.com/questions/17743549/recursively-add-the-entire-folder-to-a-repository
 # Ignore everything
 *
 
@@ -8,4 +9,8 @@
 # ...even if they are in subdirectories
 !*/
 # if the files to be tracked are in subdirectories
+#
+#
+# still ignore tmp.py
+tmp.py
 
