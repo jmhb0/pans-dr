@@ -1,16 +1,12 @@
-# https://stackoverflow.com/questions/17743549/recursively-add-the-entire-folder-to-a-repository
+# https://stackoverflow.com/questions/987142/make-gitignore-ignore-everything-except-a-few-files 
 # Ignore everything
 *
+./data/*
 
-# But not these files...
+# But don't ignore these files
 !.gitignore
 !*.py
 
-# ...even if they are in subdirectories
-!*/
-# if the files to be tracked are in subdirectories
-#
-#
-# still ignore tmp.py
+# but still ignore these .py
 tmp.py
 

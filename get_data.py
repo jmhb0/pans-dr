@@ -14,16 +14,26 @@ import re
 import treelib 
 import warnings
 
+## Constants for data file structure. *.csv files should be in /data/ 
+# Phosphophlow
+fname_phosphoflow = 'all-pans-phosphoflow-data-gated-jun-29.csv'
+# Proteomics
+fname_proteomics = 'pans-somascan-data-jul-23.csv'
+proteomics_skiprows = 54
+proteomics_num_row_headers = 25
+proteomics_num_col_headers = 16
+# Metabolomics
+fname_metabolomics = 'pans-Metabolomics.csv'
+metabolomics_skiprows = 0
+metabolomics_num_row_headers = 12
+metabolomics_num_col_headers = 17
+
 # directory of the calling code
 dir_path = os.path.dirname(os.path.realpath(__file__))
+data_dir = '{}/data'.format(dir_path)
 
 ################################################################################
 # Phosphoflow code
-
-phospho_data_dir = 'phosphoflow-data'
-fname_phosphoflow = '{}/{}/all-pans-phosphoflow-data-gated-jun-29.csv'\
-				.format(dir_path, phospho_data_dir)
-
 '''
 Read in data. Set `id` to index. Remove duplicates. Adjust some inconsistencies
 in column names ti help with processing later on. 
@@ -33,7 +43,11 @@ outliers. The `id` columns is the
 '''
 def phosphoflow_get_data(drop_rows=None):
 	indx_col = 'id'
-	df = pd.read_csv(fname_phosphoflow, index_col='id')
+	df = pd.read_csv('{}/{}'.format(
+				data_dir
+				, fname_phosphoflow
+				)
+			, index_col='id')
 	if drop_rows is not None:
 		df = d.drop(drop_rows, axis=0) 
 		# df = d.reset_index()
@@ -74,7 +88,6 @@ def phosphoflow_get_data(drop_rows=None):
 	            cols[i] = cols[i].replace('Parent', mon_type)
 	df.columns = cols
 	return df
-
 
 ''' 
 Get list of column names matching a regex, and pulling out the relevant marker
@@ -188,32 +201,23 @@ def phosphoflow_build_and_print_cell_tree(df, cols, cols_label1, cols_label2):
     cell_tree_means.show()
     return cell_tree, lookup
 
- 
-
 ################################################################################
 # Proteomics code
-
-proteomics_data_dir = 'multi-omics-data'
-fname_proteomics = '{}/{}/pans-somascan-data-jul-23.csv'\
-				.format(dir_path, proteomics_data_dir)
-
 '''
 @param drop_rows: list/array of row indices to remove. Is for removing data
 outliers. The `id` columns is the 
 '''
 def proteomics_get_data(drop_rows=None):
-	# constants b ased on somascan csv that was shared
-	skiprows = 54
-	num_row_headers = 25
-	num_col_headers = 16
-
 	with warnings.catch_warnings():
 	    warnings.simplefilter(action='ignore', category=FutureWarning)
-	    d = pd.read_csv(fname_proteomics
-	                    , skiprows=skiprows
-	                    , index_col=list(range(num_row_headers))
-	                    , header=list(range(num_col_headers))
-	                   )
+	    d = pd.read_csv('{}/{}'.format(
+						data_dir
+						, fname_proteomics
+						)
+                    , skiprows=proteomics_skiprows
+                    , index_col=list(range(proteomics_num_row_headers))
+                    , header=list(range(proteomics_num_col_headers))
+                    )
 
 	# Save col headers to `indx_cols`. Later will create a lookup frame this data 
 	# But for the main data frame, we'll drop them, except `SeqId`
@@ -258,14 +262,8 @@ def proteomics_get_SeqId_lookup(indx_cols):
 	                .set_index('SeqId')
 	return SeqId_lookup 
 
-
 ################################################################################
 # metabolomics
-
-metabolomics_data_dir = 'multi-omics-data'
-fname_metabolomics = '{}/{}/pans-Metabolomics.csv'\
-				.format(dir_path, metabolomics_data_dir)
-
 '''
 @param drop_rows: list/array of row indices to remove. Is for removing data
 outliers. The `id` columns is the 
@@ -275,16 +273,15 @@ indx_rows. This is because indx_rows must re-import the csv to get the correct
 bounds.
 '''
 def metabolomics_get_data(drop_rows=None):
-	skiprows = 0
-	num_row_headers = 12
-	num_col_headers = 17
-
 	# must do 2 reads to get all the header info
-	d = pd.read_csv(fname_metabolomics
-	                , skiprows=skiprows
-	                , index_col=list(range(num_row_headers))
-	                , header=list(range(num_col_headers))
-	               )
+	d = pd.read_csv('{}/{}'.format(
+				data_dir
+				, fname_metabolomics
+				)
+            , skiprows=metabolomics_skiprows
+            , index_col=list(range(metabolomics_num_row_headers))
+            , header=list(range(metabolomics_num_col_headers))
+            )
 
 	# save index_cols to use later
 	indx_cols = d.columns
@@ -327,11 +324,14 @@ def metabolomics_get_PathwaySo_lookup():
 	skiprows = 0
 	num_row_headers = 12
 	num_col_headers = 17
-	d_tmp = pd.read_csv(fname_metabolomics
-                , skiprows=skiprows
-                , index_col=list(range(num_row_headers))
-                , header=list(range(num_col_headers-1))
-               )
+	d_tmp = pd.read_csv('{}/{}'.format(
+				data_dir
+				, fname_metabolomics
+				)
+            , skiprows=metabolomics_skiprows
+            , index_col=list(range(metabolomics_num_row_headers))
+            , header=list(range(metabolomics_num_col_headers-1))
+           )
 
 	PathwaySo_lookup = d_tmp.index.to_frame(index=False)
 	PathwaySo_lookup.columns = PathwaySo_lookup.iloc[0]
