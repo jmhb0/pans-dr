@@ -6,7 +6,7 @@
 # But don't ignore these files
 !.gitignore
 !*.py
-!/data/
+!/data
 
 # but still ignore these .py
 tmp.py
