@@ -1,14 +1,10 @@
-# https://stackoverflow.com/questions/987142/make-gitignore-ignore-everything-except-a-few-files 
-# Ignore everything
+# Ignore everything (includes directories and their files)
 *
-./data/*
 
-# But don't ignore these files
+# Except these files  
 !.gitignore
-!*.py
+!get_data.py
+!omics_dr_tools.py
 !requirements.txt
 !./data/.data_info
-
-# but still ignore these .py
-tmp.py
 
