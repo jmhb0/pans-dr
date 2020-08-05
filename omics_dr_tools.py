@@ -141,7 +141,7 @@ continuous/gradient data.
 
 @param data_labels: dataframe/series/array with shape (n_samples,). Data that 
     will define the coloring.
-@param col_dtype: 'categorical' or 'continuous'. Whether the colors just show 
+@param data_label_dtype: 'categorical' or 'continuous'. Whether the colors just show 
     discrete groups or whether we wish to plot a gradient
 
 returns: 
@@ -154,11 +154,11 @@ mapping from values to colors so that we cover the full range.
   When no. categories exceeds 7. This requires finding a categorical cmap with 
 more colors. 
 '''
-def get_coloring_and_legend(data_labels, col_dtype='categorical'):
-    if col_dtype=='continuous':
+def get_coloring_and_legend(data_labels, data_label_dtype='categorical'):
+    if data_label_dtype=='continuous':
         raise NotImplementedError("TODO: implement continuous colormapping")
         
-    elif col_dtype=='categorical':
+    elif data_label_dtype=='categorical':
         groups = data_labels.unique()
         cnt_unique_labels = len(groups)
         
@@ -178,7 +178,8 @@ def get_coloring_and_legend(data_labels, col_dtype='categorical'):
         colors = data_labels.map(color_map)
         
         # manually create the legend patches
-        patches = [mpatches.Patch(color=v, label=k) for k,v in color_map.items()] 
+        patches = [mpatches.Patch(color=v, label=k) 
+                        for k,v in color_map.items()] 
     else:
         raise ValueError()
     return colors, patches
@@ -192,13 +193,19 @@ Centre and do PCA on a numeric dataframe. Optionally eigenvals, PC projections.
 Must pass in a dataframe so that we have index and column labels
 
 This function calls `get_coloring_and_legend` which lives in this module.
+
+Returns tuple of 5 objects. If you only want the first with name `PC+projection`
+    `PC_projection, *args = do_pca(df)`
+Or you can write 
+    `*args, = do_pca(df)`
+And then index it by args[0]
 '''
 def do_pca(df
            , n_components=100
            , plot_eigenvalues=True, figsize_eig=(8,4)
            , plot_pc_projection=True, figsize_proj=(8,8), s=500
            , plot_pc_proj_X=1, plot_pc_proj_Y=2
-           , data_labels=None, col_dtype='categorical'
+           , data_labels=None, data_label_dtype='categorical'
            , random_state=0
           ):
     # Centering
@@ -211,10 +218,15 @@ def do_pca(df
     explained_variance_ratio = svd.explained_variance_ratio_
     eig_vals = svd.singular_values_**2
     
+
+    # instantiate plotting objects to None (in case we don't enter `if` branch)
+    f_eig = axs_eig = f_proj = axs_proj =None
+
     if plot_eigenvalues:
-        f, axs = plt.subplots(1,1, figsize=figsize_eig)
-        f.suptitle("Scree plot of top {} eigenvalues".format(len(eig_vals)))
-        axs.bar(range(len(eig_vals)), eig_vals)
+        f_eig, axs_eig = plt.subplots(1,1, figsize=figsize_eig)
+        f_eig.suptitle("Scree plot of top {} eigenvalues"\
+            .format(len(eig_vals)))
+        axs_eig.bar(range(len(eig_vals)), eig_vals)
         
     if plot_pc_projection:
         # find which PC is to be plotted. Subtract 1 due to 0-indexing
@@ -225,23 +237,24 @@ def do_pca(df
         color, patches = get_coloring_and_legend(data_labels)
         
         # do the plotting
-        f, axs = plt.subplots(1,1, figsize=figsize_proj)
+        f_proj, axs_proj = plt.subplots(1,1, figsize=figsize_proj)
         
-        axs.scatter(PC_X, PC_Y, s=s, color=color)
-        axs.set(xlabel="PC{}".format(plot_pc_proj_X)
+        axs_proj.scatter(PC_X, PC_Y, s=s, color=color)
+        axs_proj.set(xlabel="PC{}".format(plot_pc_proj_X)
                ,ylabel="PC{}".format(plot_pc_proj_Y))
         
         # manually create legend
-        axs.legend(handles=patches)
+        axs_proj.legend(handles=patches)
     
-    return PC_projection, eig_vals, PCs, explained_variance_ratio
+    return PC_projection, eig_vals, PCs, explained_variance_ratio\
+                , (f_eig, axs_eig, f_proj, axs_proj)
 
 ################################################################################
 # Funcs TSNE on a range of perplexities (whose constants are hardcoded)
-def do_TSNE(df, data_labels,random_state=20, col_dtype='categorical'
+def do_TSNE(df, data_labels,random_state=20, data_label_dtype='categorical'
         , n_PCA_components=100, plot_width=10,s=100
         ):
-    PC_projection, _, _, _ = do_pca(df, n_components=n_PCA_components
+    PC_projection, *args  = do_pca(df, n_components=n_PCA_components
                                     , data_labels=data_labels
                                     , plot_eigenvalues=False
                                     , plot_pc_projection=False
@@ -273,14 +286,14 @@ def do_TSNE(df, data_labels,random_state=20, col_dtype='categorical'
             axs[i,j].set(title='Perplexity {}'.format(perplexity))
             axs[i,j].legend(handles=patches)
 
-    return X_embeddings
+    return X_embeddings, (f, axs)
 
 ################################################################################
 # Funcs Umap on a range of perplexities (whose constants are hardcoded)
-def do_UMAP(df, data_labels, col_dtype='categorical'
+def do_UMAP(df, data_labels, data_label_dtype='categorical'
         , n_PCA_components=100, plot_width=10,s=100, random_state=20
         ):
-    PC_projection, _, _, _ = do_pca(df, n_components=n_PCA_components
+    PC_projection, *args  = do_pca(df, n_components=n_PCA_components
                                     , data_labels=data_labels
                                     , plot_eigenvalues=False
                                     , plot_pc_projection=False
@@ -311,14 +324,35 @@ def do_UMAP(df, data_labels, col_dtype='categorical'
             axs[i,j].set(title='Nearest Neighbors: {}'.format(n))
             axs[i,j].legend(handles=patches)
 
-    return X_embeddings
+    return X_embeddings, (f, axs)
 
 ################################################################################
+'''
+data must have index corresponding to sampleIds in `sample_pair_lookup`
+'''
+# Plotting lines between paired samples in an embedding 
+def plot_pairs_on_dr_embedding(data, sample_pair_lookup, f_proj, ax_proj
+                        , lw=1, c='k'):
+    scatter_points = ax_proj.collections[0].get_offsets().data
+    df_scatter_points = pd.DataFrame(scatter_points, index=data.index)
 
+    for flareId in sample_pair_lookup.index:
+        remissionId = sample_pair_lookup.loc[flareId]['sampleId-remission']
+        
+        if flareId not in df_scatter_points.index:
+            print("FlareId {} not in dataset".format(flareId))
+            continue
+        if remissionId not in df_scatter_points.index:
+            print("RemissionId {} not in dataset".format(remissionId))
+            continue
+        x_pnts = df_scatter_points.loc[[flareId, remissionId]][0].values
+        y_pnts = df_scatter_points.loc[[flareId, remissionId]][1].values
+        ax_proj.plot(x_pnts, y_pnts, lw=lw, c=c)
 
+    return f_proj, ax_proj
 
-
-
+################################################################################
+# Prediction code
 ''' 
 Train a random forest model and make 1 prediction
 @param X_train: training data, shape (n_samples, n_features)
@@ -345,7 +379,7 @@ other data
 def leave_out_out_prediction(data, data_lables, predict_model
                     , n_PCA_components=50
                     , random_state=0):
-    PC_projection, _, _, _ = do_pca(data, n_components=n_PCA_components
+    PC_projection, *args = do_pca(data, n_components=n_PCA_components
                                         , plot_eigenvalues=False
                                         , plot_pc_projection=False
                                             )

@@ -27,6 +27,9 @@ fname_metabolomics = 'pans-Metabolomics.csv'
 metabolomics_skiprows = 0
 metabolomics_num_row_headers = 12
 metabolomics_num_col_headers = 17
+# Data pairing for proteomics & metabolomics 
+fname_omics_pairing = 'proteomics-metabolomics-sample-pairing.csv'
+omics_pairing_col_width = 20
 
 # directory of the calling code
 dir_path = os.path.dirname(os.path.realpath(__file__))
@@ -235,8 +238,11 @@ def proteomics_get_data(drop_rows=None):
 	        .drop('SeqId',axis=1)
 	d.columns.name = 'SeqId'
 
-
 	d = d.drop(drop_rows, axis=0)
+	d_indx_split = d.index.str.split('_')
+	d_indx_splt_filt = [np.flip(np.array(z))[0] for z in d_indx_split] # gross
+	d.index = d_indx_splt_filt
+
 	return d, indx_rows, indx_cols
 
 '''
@@ -248,7 +254,13 @@ def proteomics_get_SampleId_lookup(indx_rows):
                     .set_index('SampleId')\
                     .transpose()\
                     .fillna('')
-	return SampleId_lookup.transpose()
+	# TODO - less hacky version of below (the code is repeated for the main df index)
+	SampleId_lookup = SampleId_lookup.transpose() 
+	tmp_indx = SampleId_lookup.index.str.split('_')
+	tmp_indx = [np.flip(np.array(z))[0] for z in tmp_indx] # gross
+	SampleId_lookup.index = tmp_indx
+
+	return SampleId_lookup
 
 '''
 TODO
@@ -287,7 +299,7 @@ def metabolomics_get_data(drop_rows=None):
 	indx_cols = d.columns
 
 	drop_cols = list(range(len(d.columns.levels)))
-	keep_col_indx = 2 # sample name
+	keep_col_indx = 0 # sample name
 	drop_cols.remove(keep_col_indx)
 	d.columns = d.columns.droplevel(
 	    drop_cols
@@ -297,9 +309,9 @@ def metabolomics_get_data(drop_rows=None):
 	    list(range(1,len(d.index.levels)))
 	)
 
-	d = d.drop(['SAMPLE NAME'],axis=1)
+	d = d.drop(['CLIENT IDENTIFIER'],axis=1)
 
-	d.columns.name = 'SampleName'
+	d.columns.name = 'ClientId'
 	d.index.name = 'PathwaySo'
 
 	return d.transpose(), None, indx_cols
@@ -307,15 +319,15 @@ def metabolomics_get_data(drop_rows=None):
 '''
 TODO
 '''
-def metabolomics_get_SampleName_lookup(indx_cols):
-	SampleName_lookup = indx_cols.to_frame(index=False)
-	new_cols = SampleName_lookup.iloc[0]
+def metabolomics_get_ClientId_lookup(indx_cols):
+	ClientId_lookup = indx_cols.to_frame(index=False)
+	new_cols = ClientId_lookup.iloc[0]
 	new_cols[-1] = 'Group'
-	SampleName_lookup.columns = new_cols
-	SampleName_lookup
-	SampleName_lookup = SampleName_lookup.drop(0).set_index('SAMPLE NAME')
-	SampleName_lookup.index.name = 'SampleName'
-	return SampleName_lookup 
+	ClientId_lookup.columns = new_cols
+	ClientId_lookup
+	ClientId_lookup = ClientId_lookup.drop(0).set_index('CLIENT IDENTIFIER')
+	ClientId_lookup.index.name = 'ClientId'
+	return ClientId_lookup 
 
 '''
 TODO
@@ -338,3 +350,15 @@ def metabolomics_get_PathwaySo_lookup():
 	PathwaySo_lookup = PathwaySo_lookup.drop(0).set_index("PATHWAY SORTORDER")
 	PathwaySo_lookup.index.name = "PathwaySo"
 	return PathwaySo_lookup
+
+################################################################################
+# Pairing samples in proteomics & metabolomics datasets
+def omics_pairing_get_lookup():
+	d = pd.read_csv('{}/{}'.format(data_dir, fname_omics_pairing)
+			, usecols=list(range(omics_pairing_col_width))
+		)
+	# d = pd.read_csv(fname_omics_pairing, usecols=list(range(omics_pairing_col_width)))
+	d= d[['Unique Sample ID \n(as labeled on tube)','Unique Sample ID \n(as labeled on tube).1']]
+	d.columns = ['sampleId-flare', 'sampleId-remission']
+	d = d.dropna().set_index('sampleId-flare', drop=False)
+	return d
