@@ -291,7 +291,7 @@ def do_TSNE(df, data_labels,random_state=20, data_label_dtype='categorical'
 ################################################################################
 # Funcs Umap on a range of perplexities (whose constants are hardcoded)
 def do_UMAP(df, data_labels, data_label_dtype='categorical'
-        , n_PCA_components=100, plot_width=10,s=100, random_state=20
+        , n_PCA_components=100, plot_width=10,s=100, random_state=20, legend=True
         ):
     PC_projection, *args  = do_pca(df, n_components=n_PCA_components
                                     , data_labels=data_labels
@@ -300,7 +300,7 @@ def do_UMAP(df, data_labels, data_label_dtype='categorical'
                                    )
 
     figsize = (plot_width,2*plot_width)
-    n_neighbors = [2,3,4,5,8,12,15,20,40]
+    n_neighbors = [2,3,4,5,6,7,8,10,12,15]
     # ensure there are an even number of perplexity things 
     # this so we can reshape it to be in subplots
     if len(n_neighbors) % 2 == 1:
@@ -322,7 +322,8 @@ def do_UMAP(df, data_labels, data_label_dtype='categorical'
             color, patches = get_coloring_and_legend(data_labels)
             axs[i,j].scatter(X_embedded[:,0], X_embedded[:,1], color=color,s=s)
             axs[i,j].set(title='Nearest Neighbors: {}'.format(n))
-            axs[i,j].legend(handles=patches)
+            if legend:
+                axs[i,j].legend(handles=patches)
 
     return X_embeddings, (f, axs)
 

@@ -17,6 +17,8 @@ import warnings
 ## Constants for data file structure. *.csv files should be in /data/ 
 # Phosphophlow
 fname_phosphoflow = 'all-pans-phosphoflow-data-gated-jun-29.csv'
+fname_phosphoflow_clinical = 'phosphoflow-clinical-data-aug-5.csv'
+fname_phosphoflow_control_ids = 'phosphoflow-control-ids.csv'
 # Proteomics
 fname_proteomics = 'pans-somascan-data-jul-23.csv'
 proteomics_skiprows = 54
@@ -92,6 +94,46 @@ def phosphoflow_get_data(drop_rows=None):
 	df.columns = cols
 	return df
 
+'''
+TODO
+'''
+def phosphoflow_get_clinical_data():
+	# read clinical data
+	d = pd.read_csv('{}/{}'.format(
+				data_dir
+				, fname_phosphoflow_clinical
+				))
+
+	d.columns = [s.replace('\r',' ').replace('\n',' ') for s in d.columns]
+	d = d.set_index('Specimen ID# / (Sample barcode)'
+			, 'Specimen collection date ')
+	d.rename(columns={'In Flare  0 = No,   1 = Yes' : 'in_flare'}, inplace=True)
+	d['in_flare'] = d['in_flare'].fillna('None')
+	d.index.name='id'
+	d.index = [
+		s.replace('118-0007-03 (labelled as 118-0007-CE.01 on biobank)'
+			, '118-0007-03') 
+			for s in d.index.values]
+	d['patient_id'] = [s[1] for s in d.index.str.split('-')]
+	d['is_control'] = False
+
+	# read control ids 
+	d_c = pd.read_csv('{}/{}'.format(data_dir, fname_phosphoflow_control_ids))
+	d_c['in_flare'] = 0
+	d_c = d_c.set_index('HCs')
+	d_c.index.name = 'id'
+	d_c['patient_id'] = [s[1] for s in d_c.index.str.split('-')]
+	d_c['is_control'] = True	
+
+	# append clinical data+control ids
+	df_clinical = d.append(d_c)
+
+	return df_clinical
+
+# def phosphoflow_get_control_ids():
+	
+# 	return d
+
 ''' 
 Get list of column names matching a regex, and pulling out the relevant marker
  + cell information. 
@@ -138,6 +180,7 @@ def phosphoflow_get_data_col_meta(df, hide_output=False):
 			, cols_expression , cols_expression_label1, cols_expression_label2
 
 '''
+TODO - remove this function - based on old interpretation of data
 Get the id index from `df` and create `id_lookup` that has info 
 '''
 def phosphoflow_make_id_lookup(df):

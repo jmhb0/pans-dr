@@ -1,7 +1,7 @@
 # Ignore everything (includes directories and their files)
 *
 
-# Except these files  
+# Do not ignore these files 
 !.gitignore
 !get_data.py
 !omics_dr_tools.py
