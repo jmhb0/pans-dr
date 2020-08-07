@@ -107,8 +107,8 @@ def phosphoflow_get_clinical_data():
 	d.columns = [s.replace('\r',' ').replace('\n',' ') for s in d.columns]
 	d = d.set_index('Specimen ID# / (Sample barcode)'
 			, 'Specimen collection date ')
-	d.rename(columns={'In Flare  0 = No,   1 = Yes' : 'in_flare'}, inplace=True)
-	d['in_flare'] = d['in_flare'].fillna('None')
+	d.rename(columns={'In Flare  0 = No,   1 = Yes' : 'is_flare'}, inplace=True)
+	d['is_flare'] = d['is_flare'].fillna('None')
 	d.index.name='id'
 	d.index = [
 		s.replace('118-0007-03 (labelled as 118-0007-CE.01 on biobank)'
@@ -119,7 +119,7 @@ def phosphoflow_get_clinical_data():
 
 	# read control ids 
 	d_c = pd.read_csv('{}/{}'.format(data_dir, fname_phosphoflow_control_ids))
-	d_c['in_flare'] = 0
+	d_c['is_flare'] = '0'
 	d_c = d_c.set_index('HCs')
 	d_c.index.name = 'id'
 	d_c['patient_id'] = [s[1] for s in d_c.index.str.split('-')]
@@ -127,13 +127,32 @@ def phosphoflow_get_clinical_data():
 
 	# append clinical data+control ids
 	df_clinical = d.append(d_c)
+	df_clinical.index.name = 'sampleId'
 
 	return df_clinical
 
-# def phosphoflow_get_control_ids():
-	
-# 	return d
-
+################################################################################
+# Pairing samples in phosphoflow data
+def phosphoflow_pairing_get_lookup(df_clinical, clean=True):
+	d = df_clinical[['patient_id', 'is_flare']]\
+                            .reset_index().set_index('patient_id')
+	d = d.join(d, lsuffix='.1', rsuffix='.2')
+	# only keep rows where sampleId and joined sampleIds are different
+	# so there will be 2 copies for each - pairing. Only keep those where 
+	# the first sample has is_flare=1.
+	d = d[
+	    (d['sampleId.1'] != d['sampleId.2'])
+	    & (d['is_flare.1'] == '1')
+	]
+	if clean: 
+		d = d[
+			(d['is_flare.2'] == '0')
+		]
+		d = d.reset_index().set_index('sampleId.1')
+		d.index.name = 'sampleId-flare'
+		d.columns = [s.replace('sampleId.2', 'sampleId-remission') 
+				for s in d.columns]
+	return d
 ''' 
 Get list of column names matching a regex, and pulling out the relevant marker
  + cell information. 
@@ -162,12 +181,13 @@ def phosphoflow_get_data_col_meta(df, hide_output=False):
 	# Get regular 'freq' columns
 	re_freq = re.compile("^((.*)\ \|\ Freq\.\ of\ (.*))$")
 	cols_population , cols_population_label1, cols_population_label2 \
-		, cols_freq_indx = phosphoflow_get_col_indices_and_labels(re_freq, cols)
+		, cols_freq_indx = phosphoflow_get_col_indices_and_labels(re_freq,cols)
 
 	# Get 'median'/expression cols
 	re_median = re.compile("^((.*)\ \|\ Median\ (.*))$")
 	cols_expression , cols_expression_label1, cols_expression_label2 \
-		, cols_expression_indx = phosphoflow_get_col_indices_and_labels(re_median, cols)
+		, cols_expression_indx \
+		= phosphoflow_get_col_indices_and_labels(re_median, cols)
 
 	if not hide_output:
 		print("Pulled freq data set labels with {} cols"\
@@ -179,16 +199,6 @@ def phosphoflow_get_data_col_meta(df, hide_output=False):
 	return cols_population , cols_population_label1, cols_population_label2 \
 			, cols_expression , cols_expression_label1, cols_expression_label2
 
-'''
-TODO - remove this function - based on old interpretation of data
-Get the id index from `df` and create `id_lookup` that has info 
-'''
-def phosphoflow_make_id_lookup(df):
-	id_lookup = pd.DataFrame(df.index).set_index('id', drop=False)
-	id_lookup = id_lookup['id']\
-	                .str.split('-', expand=True)\
-	                .rename(columns={0:"num",1:"patient",2:"state"})
-	return id_lookup
 
 # func for displaying cell_tree data
 def phosphoflow_build_and_print_cell_tree(df, cols, cols_label1, cols_label2):

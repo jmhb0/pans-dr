@@ -330,6 +330,9 @@ def do_UMAP(df, data_labels, data_label_dtype='categorical'
 ################################################################################
 '''
 data must have index corresponding to sampleIds in `sample_pair_lookup`
+
+`sample_pair_lookup` has index called with the sampleId of the flare patient
+and a col called `sampleId-remission`.
 '''
 # Plotting lines between paired samples in an embedding 
 def plot_pairs_on_dr_embedding(data, sample_pair_lookup, f_proj, ax_proj

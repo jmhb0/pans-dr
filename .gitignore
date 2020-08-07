@@ -3,6 +3,7 @@
 
 # Do not ignore these files 
 !.gitignore
+!README.mdh
 !get_data.py
 !omics_dr_tools.py
 !requirements.txt
