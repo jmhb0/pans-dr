@@ -3,7 +3,7 @@ Dimensionality reduction on biological data of patiens with [PANS](https://med.s
 
 There are two modules. One is for reading and structuring the data. One is for doing dimensionality reduction and prediction. The data is not included in the repo. The acutal analysis is also not in this repo, but are in notebooks that use these modules. This is to ensure data privacy. 
 
-## Repo structure
+## Files
 `get_data.py`: Declare filenames, and constants about the file structure for reading in `.csv`s. 
 
 `data/`: Directory for csv files. The file names are declared in the `get_data` module. 
@@ -24,7 +24,7 @@ pip install -r requirements.txt
 Add csv files to the `data/` directory and edit the filenames that are in the top 
 of the file `get_data.py`. Create a notebook, `ipynb` file, and use the functions in `.py` files for anaylsis. 
 
-## Analsis
+## Analysis
 The `ipynb` files that do the analysis are excluded from the repo. These are the tasks that would be done there:
 - Read data using `get_data` module. 
 - Explore dataset for outliers, do summary stats with `groupby()` funcs, etc. 
