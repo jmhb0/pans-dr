@@ -203,27 +203,30 @@ Or you can write
     `*args, = do_pca(df)`
 And then index it by args[0]
 '''
-def do_pca(df
+def do_pca(data, data_labels=None, data_to_project=None
            , n_components=100
            , plot_eigenvalues=True, figsize_eig=(8,4)
            , plot_pc_projection=True, figsize_proj=(8,8), s=500
            , plot_pc_proj_X=1, plot_pc_proj_Y=2
-           , data_labels=None, data_label_dtype='categorical'
+           , data_label_dtype='categorical'
            , random_state=0
           ):
     # Centering
-    df = df - df.mean(axis=0)
+    shift = data.mean(axis=0)
+    data = data - shift
+
+    if data_to_project is None:
+        data_to_project = data
     
     # PCA
     svd = TruncatedSVD(n_components=n_components, random_state=random_state)
-    PC_projection = svd.fit_transform(df)
+    PC_projection = svd.fit(data).transform(data_to_project)
     PCs = svd.components_
     explained_variance_ratio = svd.explained_variance_ratio_
     eig_vals = svd.singular_values_**2
     
-
     # instantiate plotting objects to None (in case we don't enter `if` branch)
-    f_eig = axs_eig = f_proj = axs_proj =None
+    f_eig = axs_eig = f_proj = ax_proj =None
 
     if plot_eigenvalues:
         f_eig, axs_eig = plt.subplots(1,1, figsize=figsize_eig)
@@ -240,18 +243,22 @@ def do_pca(df
         color, patches = get_coloring_and_legend(data_labels)
         
         # do the plotting
-        f_proj, axs_proj = plt.subplots(1,1, figsize=figsize_proj)
+        f_proj, ax_proj = plt.subplots(1,1, figsize=figsize_proj)
         
-        axs_proj.scatter(PC_X, PC_Y, s=s, color=color)
-        axs_proj.set(xlabel="PC{}".format(plot_pc_proj_X)
+        ax_proj.scatter(PC_X, PC_Y, s=s, color=color)
+        ax_proj.set(xlabel="PC{}".format(plot_pc_proj_X)
                ,ylabel="PC{}".format(plot_pc_proj_Y))
         
         # manually create legend
-        axs_proj.legend(handles=patches)
+        ax_proj.legend(handles=patches)
     
-    return PC_projection, eig_vals, PCs, explained_variance_ratio\
-                , (f_eig, axs_eig, f_proj, axs_proj)
-
+    
+    ret_k = ['PC_projection', 'eig_vals', 'PCs', 'shift'
+        , 'explained_variance_ratio', 'f_eig', 'axs_eig', 'f_proj', 'ax_proj']
+    ret_v = [PC_projection, eig_vals, PCs, shift, explained_variance_ratio
+                , f_eig, axs_eig, f_proj, ax_proj]
+    return dict(zip(ret_k, ret_v))
+    
 ################################################################################
 ''' 
 Do TSNE and project to axis passed to labels
@@ -259,11 +266,12 @@ Do TSNE and project to axis passed to labels
 def do_TSNE_PCA_reduced(data, data_labels, ax=None
     , data_label_dtype='categorical', random_state=0, perplexity=30
     , n_PCA_components=50, s=100, legend=True):
-    PC_projection, *args  = do_pca(data, n_components=n_PCA_components
+    r_do_pca  = do_pca(data, n_components=n_PCA_components
                                     , data_labels=data_labels
                                     , plot_eigenvalues=False
                                     , plot_pc_projection=False
                                    )
+    PC_projection = r_do_pca['PC_projection']
 
     X_embedding = TSNE(n_components=2, perplexity=perplexity
                     ,random_state=random_state)\
@@ -312,12 +320,13 @@ def do_TSNE_PCA_reduced_set_perplexities(data, data_labels,random_state=0
 def do_UMAP_PCA_reduced(data, data_labels, n_neighbors=10, ax=None
     , data_label_dtype='categorical', random_state=0, n_PCA_components=50
     , s=100, legend=True):
-    PC_projection, *args  = do_pca(data, n_components=n_PCA_components
+    r_do_pca  = do_pca(data, n_components=n_PCA_components
                                     , data_labels=data_labels
                                     , plot_eigenvalues=False
                                     , plot_pc_projection=False
                                    )
 
+    PC_projection = r_do_pca['PC_projection']
     X_embedding = umap.UMAP(random_state=random_state
                     , n_neighbors=n_neighbors)\
                 .fit_transform(PC_projection)
@@ -371,7 +380,7 @@ data must have index corresponding to sampleIds in `sample_pair_lookup`
 and a col called `sampleId-remission`.
 '''
 # Plotting lines between paired samples in an embedding 
-def plot_pairs_on_dr_embedding(data, sample_pair_lookup, f_proj, ax_proj
+def plot_pairs_on_dr_embedding(data, sample_pair_lookup, ax_proj
                         , lw=1, c='k'):
     scatter_points = ax_proj.collections[0].get_offsets().data
     df_scatter_points = pd.DataFrame(scatter_points, index=data.index)
@@ -388,8 +397,8 @@ def plot_pairs_on_dr_embedding(data, sample_pair_lookup, f_proj, ax_proj
         x_pnts = df_scatter_points.loc[[flareId, remissionId]][0].values
         y_pnts = df_scatter_points.loc[[flareId, remissionId]][1].values
         ax_proj.plot(x_pnts, y_pnts, lw=lw, c=c)
-
-    return f_proj, ax_proj
+    return
+    # return f_proj, ax_proj
 
 ################################################################################
 # Prediction code
@@ -435,12 +444,19 @@ def leave_out_out_prediction(data, data_labels, predict_model
     for train_index, test_index in loo.split(X):
         X_train, X_test = X[train_index], X[test_index]
         Y_train, Y_test = Y[train_index], Y[test_index]
-        # pass partial dataset to PCA
-        PC_projection, *args = do_pca(X_train, n_components=n_PCA_components
-                                        , plot_eigenvalues=False
-                                        , plot_pc_projection=False
-                                            )
-        Y_predict = predict_model(X_train, Y_train, X_test, **kwargs)
+        
+        # pass partial dataset to PCA, get projected data, project test data
+        r_do_pca = do_pca(X_train
+            , n_components=n_PCA_components
+            , plot_eigenvalues=False, plot_pc_projection=False)
+        # unpack return dictionary 
+        X_train_projected, PCs, shift = (r_do_pca[k] 
+                for k in ['PC_projection', 'PCs', 'shift'])
+
+        X_test_projected = np.dot(PCs, (X_test-shift).transpose()).transpose()
+        Y_predict = predict_model(X_train_projected, Y_train
+                , X_test_projected, **kwargs)
+
         results[test_index[0]][0] = Y_test[0][0]
         results[test_index[0]][1] = Y_predict
         
@@ -486,11 +502,12 @@ def plot_confusion_matrix(results, figsize=(12,4)
     axs[0].set(xlabel='Prediction', ylabel='True state'
         , title="Counts")
     
+    # green colormap over range [0,1]
     sns.heatmap(c_matrix_df_norm, ax=axs[1], annot=True
         , annot_kws={'size': annotation_size}
-        ,cmap='Greens',fmt='.2f')
+        ,cmap='Greens',fmt='.2f', vmin=0, vmax=1)
     axs[1].set(xlabel='Prediction'
-        , ylabel='True state', title="% correct");
+        , ylabel='True state', title="% correct")
     
     return f, axs
 
