@@ -2,8 +2,10 @@ import numpy as np
 import pandas as pd 
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
+from matplotlib.colors import ListedColormap
 import seaborn as sns
 from collections import OrderedDict
+import logging
 
 from sklearn.linear_model import LinearRegression
 from sklearn.decomposition import TruncatedSVD
@@ -128,6 +130,7 @@ def apply_common_VSTs(df, plot_name=''
                             .format(plot_name, transform_names[i])
             , xlim_0=xlim_0, ylim_0=ylim_0
             , xlim_1=xlim_1, ylim_1=ylim_1)
+
 ################################################################################
 # Funcs for coloring dimensionally-reduced data
 '''
@@ -159,7 +162,7 @@ def get_coloring_and_legend(data_labels, data_label_dtype='categorical'):
         raise NotImplementedError("TODO: implement continuous colormapping")
         
     elif data_label_dtype=='categorical':
-        groups = data_labels.unique()
+        groups = np.sort(data_labels.unique())
         cnt_unique_labels = len(groups)
         
         # skip unlikely case there are many colors (would have to find a 
@@ -250,18 +253,41 @@ def do_pca(df
                 , (f_eig, axs_eig, f_proj, axs_proj)
 
 ################################################################################
-# Funcs TSNE on a range of perplexities (whose constants are hardcoded)
-def do_TSNE(df, data_labels,random_state=20, data_label_dtype='categorical'
-        , n_PCA_components=100, plot_width=10,s=100
-        ):
-    PC_projection, *args  = do_pca(df, n_components=n_PCA_components
+''' 
+Do TSNE and project to axis passed to labels
+'''
+def do_TSNE_PCA_reduced(data, data_labels, ax=None
+    , data_label_dtype='categorical', random_state=0, perplexity=30
+    , n_PCA_components=50, s=100, legend=True):
+    PC_projection, *args  = do_pca(data, n_components=n_PCA_components
                                     , data_labels=data_labels
                                     , plot_eigenvalues=False
                                     , plot_pc_projection=False
                                    )
 
+    X_embedding = TSNE(n_components=2, perplexity=perplexity
+                    ,random_state=random_state)\
+                .fit_transform(PC_projection)
+    
+    # If no axis pased, create a simple figure for it
+    if ax is None:
+        f, ax = plt.subplots()    
+
+    color, patches = get_coloring_and_legend(data_labels
+        , data_label_dtype=data_label_dtype)
+    ax.scatter(X_embedding[:,0], X_embedding[:,1], color=color,s=s)
+    ax.set(title='Perplexity {}'.format(perplexity))
+    if legend:    
+        ax.legend(handles=patches)
+    return X_embedding, ax
+
+''' 
+Run TSNE for a range of perplexities and plot on one figure.
+'''
+def do_TSNE_PCA_reduced_set_perplexities(data, data_labels,random_state=0
+    , data_label_dtype='categorical', n_PCA_components=100, plot_width=10,s=100
+    , legend=True, perplexities = [2,5,10,15,20,30,50,100]):
     figsize = (plot_width,2*plot_width)
-    perplexities = [2,5,10,15,20,30,50,100]
     # ensure there are an even number of perplexity things 
     # this so we can reshape it to be in subplots
     if len(perplexities) % 2 == 1:
@@ -275,34 +301,50 @@ def do_TSNE(df, data_labels,random_state=20, data_label_dtype='categorical'
     for i in range(perplexities.shape[0]):
         for j in range(perplexities.shape[1]):
             perplexity = perplexities[i,j]
-
-            X_embedded = TSNE(n_components=2, perplexity=perplexity
-                ,random_state=random_state)\
-                .fit_transform(PC_projection)
-            X_embeddings[perplexity] = X_embedded
-
-            color, patches = get_coloring_and_legend(data_labels)
-            axs[i,j].scatter(X_embedded[:,0], X_embedded[:,1], color=color,s=s)
-            axs[i,j].set(title='Perplexity {}'.format(perplexity))
-            axs[i,j].legend(handles=patches)
+            X_embedding, ax = do_TSNE_PCA_reduced(data, data_labels, ax=axs[i,j]
+                , perplexity=perplexity, n_PCA_components=n_PCA_components
+                , random_state=random_state, legend=legend)
+            X_embeddings[perplexity] = X_embedding
 
     return X_embeddings, (f, axs)
 
 ################################################################################
-# Funcs Umap on a range of perplexities (whose constants are hardcoded)
-def do_UMAP(df, data_labels, data_label_dtype='categorical'
-        , n_PCA_components=100, plot_width=10,s=100, random_state=20, legend=True
-        ):
-    PC_projection, *args  = do_pca(df, n_components=n_PCA_components
+def do_UMAP_PCA_reduced(data, data_labels, n_neighbors=10, ax=None
+    , data_label_dtype='categorical', random_state=0, n_PCA_components=50
+    , s=100, legend=True):
+    PC_projection, *args  = do_pca(data, n_components=n_PCA_components
                                     , data_labels=data_labels
                                     , plot_eigenvalues=False
                                     , plot_pc_projection=False
                                    )
 
+    X_embedding = umap.UMAP(random_state=random_state
+                    , n_neighbors=n_neighbors)\
+                .fit_transform(PC_projection)
+
+    # If no axis pased, create a simple figure for it
+    if ax is None:
+        f, ax = plt.subplots()    
+    
+    color, patches = get_coloring_and_legend(data_labels
+        , data_label_dtype=data_label_dtype)
+    ax.scatter(X_embedding[:,0], X_embedding[:,1], color=color,s=s)
+    ax.set(title='n_neighbors {}'.format(n_neighbors))
+    
+    if legend:
+        ax.legend(handles=patches)
+
+    return X_embedding, ax
+'''
+Run UMAP for a range of n_neighbors and plot on one figure.
+'''
+def do_UMAP_PCA_reduced_set_n_neighbors(data, data_labels
+    , data_label_dtype='categorical', n_PCA_components=50, plot_width=10,s=100
+    , random_state=20, legend=True
+    , n_neighbors = [2,3,4,5,6,7,8,10,12,15]):
     figsize = (plot_width,2*plot_width)
-    n_neighbors = [2,3,4,5,6,7,8,10,12,15]
-    # ensure there are an even number of perplexity things 
-    # this so we can reshape it to be in subplots
+    # Ensure there are an even number of perplexity things 
+    # This so we can reshape it to be in subplots
     if len(n_neighbors) % 2 == 1:
         n_neighbors.append(n_neighbors[-1])
     n_neighbors = np.reshape(n_neighbors, (-1,2))
@@ -314,16 +356,10 @@ def do_UMAP(df, data_labels, data_label_dtype='categorical'
     for i in range(n_neighbors.shape[0]):
         for j in range(n_neighbors.shape[1]):
             n = n_neighbors[i,j]
-
-            X_embedded = umap.UMAP(random_state=random_state, n_neighbors=n)\
-                .fit_transform(PC_projection)
-            X_embeddings[n] = X_embedded
-
-            color, patches = get_coloring_and_legend(data_labels)
-            axs[i,j].scatter(X_embedded[:,0], X_embedded[:,1], color=color,s=s)
-            axs[i,j].set(title='Nearest Neighbors: {}'.format(n))
-            if legend:
-                axs[i,j].legend(handles=patches)
+            X_embedding, ax = do_UMAP_PCA_reduced(data, data_labels,ax=axs[i,j]
+                , n_neighbors=n, data_label_dtype='categorical', random_state=0
+                , n_PCA_components=n_PCA_components, s=100, legend=True)
+            X_embeddings[n] = X_embedding
 
     return X_embeddings, (f, axs)
 
@@ -344,10 +380,10 @@ def plot_pairs_on_dr_embedding(data, sample_pair_lookup, f_proj, ax_proj
         remissionId = sample_pair_lookup.loc[flareId]['sampleId-remission']
         
         if flareId not in df_scatter_points.index:
-            print("FlareId {} not in dataset".format(flareId))
+            logging.warning("FlareId {} not in dataset".format(flareId))
             continue
         if remissionId not in df_scatter_points.index:
-            print("RemissionId {} not in dataset".format(remissionId))
+            logging.warning("RemissionId {} not in dataset".format(remissionId))
             continue
         x_pnts = df_scatter_points.loc[[flareId, remissionId]][0].values
         y_pnts = df_scatter_points.loc[[flareId, remissionId]][1].values
@@ -362,11 +398,13 @@ Train a random forest model and make 1 prediction
 @param X_train: training data, shape (n_samples, n_features)
 @param Y_train: training data labels, shape (n_samples, 1)
 @param X_test: a single test datum, shape (1,n_features)
+@param kwargs: parameters that go to RandomForestClassifier in scikitlearn. 
+They might be `random_state`, `n_estimators`, `max_depth`
 returns: prediction of label for X_test, type string
 '''
-def predict_random_forest(X_train, Y_train, X_test, random_state=0):
-    clf = RandomForestClassifier(random_state=random_state)
-    clf.fit(X_train, Y_train)
+def predict_random_forest(X_train, Y_train, X_test, **kwargs):
+    clf = RandomForestClassifier(**kwargs)
+    clf.fit(X_train, Y_train.ravel())
     return clf.predict(X_test)[0] 
 
 ''' 
@@ -375,59 +413,46 @@ Given full set of data and labels, take a prediction model
 @param Y: all labels, shape (n_samples,1)
 @param predict_model: prediction model with the form of 
 `predict_random_forest`.
-@param random_state: where
+@param kwargs: keyword arguments specific to the model in `predict_model`. A 
+common one might be `random_state` which ensures reproducibility across run.
 @return: array `r` so that r[i,0] is the i'th sample and r[i,1] is the 
 prediction for that sample when training `prediction_model` on all the
 other data
 '''
-def leave_out_out_prediction(data, data_lables, predict_model
-                    , n_PCA_components=50
-                    , random_state=0):
-    PC_projection, *args = do_pca(data, n_components=n_PCA_components
-                                        , plot_eigenvalues=False
-                                        , plot_pc_projection=False
-                                            )
+def leave_out_out_prediction(data, data_labels, predict_model
+                    , n_PCA_components=50, **kwargs):
+    X = np.asarray(data)
+    Y = np.reshape(np.asarray(data_labels), (-1,1))
 
-    X = PC_projection
-    Y = data_lables
+    assert X.shape[0]==Y.shape[0], \
+        "data.shape[0] must equal data_labels.shape[0], the numnber of samples"
 
     m = X.shape[0]
     loo = LeaveOneOut()
     loo.get_n_splits(X)
-    
     results = np.empty((m,2), dtype="<U10") 
 
     for train_index, test_index in loo.split(X):
         X_train, X_test = X[train_index], X[test_index]
         Y_train, Y_test = Y[train_index], Y[test_index]
-        Y_train = np.asarray(Y_train)
-
-        Y_test = Y_test.values[0]
-        Y_predict = predict_model(X_train, Y_train, X_test, random_state=random_state)
-        results[test_index[0]][0] = Y_test
+        # pass partial dataset to PCA
+        PC_projection, *args = do_pca(X_train, n_components=n_PCA_components
+                                        , plot_eigenvalues=False
+                                        , plot_pc_projection=False
+                                            )
+        Y_predict = predict_model(X_train, Y_train, X_test, **kwargs)
+        results[test_index[0]][0] = Y_test[0][0]
         results[test_index[0]][1] = Y_predict
         
-    return pd.DataFrame(results, columns=['Y_test', 'Y_prediction'])  
+    return pd.DataFrame(results, columns=['Y_test', 'Y_pred'])  
 
 '''
 Take in data in the form given by `leave_out_out_prediction`
 and do summary statistics
 '''
-def summarise_classification_results(results):
-    results['result'] = results['Y_test'] == results['Y_prediction']
-    res1 = pd.DataFrame(results.groupby('result').count()['Y_test'])
-    res2 = results.groupby(['Y_test','result']).count()
-    return res1, res2
-
-'''
-Plot confusion matrix for counts and normalised.
-'''
-def plot_confusion_matrix(results, figsize=(12,4)
-            , annotation_size=10
-            , n_PCA_components=None):
-    confusion_matrix(results['Y_test'], results['Y_prediction'])
+def get_confusion_matrix(results):
     labels = np.sort(results['Y_test'].unique())
-    c_matrix = confusion_matrix(results['Y_test'], results['Y_prediction']
+    c_matrix = confusion_matrix(results['Y_test'], results['Y_pred']
                                 , labels=labels)
 
     # confusion matrix standard + normalised
@@ -435,24 +460,37 @@ def plot_confusion_matrix(results, figsize=(12,4)
     c_matrix_df_norm = c_matrix_df.divide(
                             c_matrix_df.sum(axis=1)
                             , axis=0)
+    return c_matrix_df, c_matrix_df_norm
+
+'''
+Plot confusion matrix for counts and normalised.
+'''
+def plot_confusion_matrix(results, figsize=(12,4)
+            , annotation_size=30
+            , n_PCA_components=None):
+    c_matrix_df, c_matrix_df_norm = get_confusion_matrix(results)
     
     f, axs = plt.subplots(1,2,figsize=figsize)
     if n_PCA_components is not None:
         f.suptitle("Confusion matrix using top {} PCA components"\
             .format(n_PCA_components))
     
+    # For the counts matrix, just return the numbers but without the color
+    # Different classes have different sizes, so the colors are deceptive. 
+    # The colors in the normalized map make sense though
     sns.heatmap(c_matrix_df, ax=axs[0], annot=True
         , annot_kws={'size': annotation_size}
-        ,cmap='Greens',fmt='g')
+        ,cmap=ListedColormap(['white']),fmt='g'
+        , linecolor='black', linewidths=1)
 
     axs[0].set(xlabel='Prediction', ylabel='True state'
-        , title="Confusion matrix counts")
+        , title="Counts")
     
     sns.heatmap(c_matrix_df_norm, ax=axs[1], annot=True
         , annot_kws={'size': annotation_size}
         ,cmap='Greens',fmt='.2f')
     axs[1].set(xlabel='Prediction'
-        , ylabel='True state', title="Confusion matrix normalized");
+        , ylabel='True state', title="% correct");
     
     return f, axs
 

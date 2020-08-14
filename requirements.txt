@@ -7,3 +7,4 @@ sklearn==0.0
 umap-learn==0.4.6
 ipython==7.12.0
 treelib==1.6.1
+importlib==1.0.4
