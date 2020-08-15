@@ -47,7 +47,7 @@ HIDE_CODE_HTML="""<script>
     </form>"""
 plt.rcParams['axes.prop_cycle'] = plt.cycler(color=["b", "y", "c", "k"]) 
 
-################################################################################
+#------------------------------------------------------------------------------#
 # Variance stabalizing 
 ''' 
 Get 3 arrays: mean, vraiance, standard deviation. Each array has one entry per 
@@ -131,7 +131,7 @@ def apply_common_VSTs(df, plot_name=''
             , xlim_0=xlim_0, ylim_0=ylim_0
             , xlim_1=xlim_1, ylim_1=ylim_1)
 
-################################################################################
+#------------------------------------------------------------------------------#
 # Funcs for coloring dimensionally-reduced data
 '''
 Determine color for each data point that is being projected onto a low-dim space
@@ -187,8 +187,81 @@ def get_coloring_and_legend(data_labels, data_label_dtype='categorical'):
         raise ValueError()
     return colors, patches
 
+#------------------------------------------------------------------------------#
+'''
+Object for `get_data_groupings`
+'''
+GROUPING_LABEL_MAP = {
+    1 : {
+        'drop' : []
+        , 'mapping' : {
+            'Flare Only' : 'F'
+            , 'Flare Matched with remission' : 'F Match'
+            , 'Remission matched with flare' : 'R Match'
+            , 'Healthy Controls' : 'HC'        
+        }
+    }
+    , 2 : {
+        'drop' : []
+        , 'mapping' : {
+            'Flare Only' : 'F'
+            , 'Flare Matched with remission' : 'F'
+            , 'Remission matched with flare' : 'Not-F'
+            , 'Healthy Controls' : 'Not-F'        
+        }
+    }
+    , 3 : {
+        'drop' : []
+        , 'mapping' : {
+            'Flare Only' : 'Not-HC'
+            , 'Flare Matched with remission' : 'Not-HC'
+            , 'Remission matched with flare' : 'Not-HC'
+            , 'Healthy Controls' : 'HC'        
+        }
+    }
+    , 4 : {
+        'drop' : ['Remission matched with flare']
+        , 'mapping' : {
+            'Flare Only' : 'F'
+            , 'Flare Matched with remission' : 'F'
+            , 'Healthy Controls' : 'HC'        
+        }
+    }
+    , 5 : {
+        'drop' : ['Flare Only', 'Healthy Controls']
+        , 'mapping' : {
+            'Flare Matched with remission' : 'F Match'
+            , 'Remission matched with flare' : 'R Match'
+        }
+    }
+    , 6 : {
+        'drop' : ['Flare Only', 'Flare Matched with remission']
+        , 'mapping' : {
+            'Remission matched with flare' : 'R Match'
+            , 'Healthy Controls' : 'HC'        
+        }
+    }
+}
 
-################################################################################
+'''
+Use GROUPING_LABEL_MAP
+@param data: a DataFrame
+@ returns 
+    data - filtered data 
+    data_labels - mapped labels
+'''
+def get_data_groupings(data, ClientId_lookup, grouping):
+    assert grouping in (1,2,3,4,5,6)
+    drop_row_vals = GROUPING_LABEL_MAP[grouping]['drop']
+    mapping = GROUPING_LABEL_MAP[grouping]['mapping']
+
+    data_labels = ClientId_lookup.loc[data.index]['Group']
+    data_labels = data_labels[ ~data_labels.isin(drop_row_vals)]
+    data_labels = data_labels.map(mapping)
+    
+    return data.loc[data_labels.index], data_labels
+
+#------------------------------------------------------------------------------#
 # PCA 
 '''
 Centre and do PCA on a numeric dataframe. Optionally eigenvals, PC projections. 
@@ -259,7 +332,7 @@ def do_pca(data, data_labels=None, data_to_project=None
                 , f_eig, axs_eig, f_proj, ax_proj]
     return dict(zip(ret_k, ret_v))
     
-################################################################################
+#------------------------------------------------------------------------------#
 ''' 
 Do TSNE and project to axis passed to labels
 '''
@@ -316,7 +389,7 @@ def do_TSNE_PCA_reduced_set_perplexities(data, data_labels,random_state=0
 
     return X_embeddings, (f, axs)
 
-################################################################################
+#------------------------------------------------------------------------------#
 def do_UMAP_PCA_reduced(data, data_labels, n_neighbors=10, ax=None
     , data_label_dtype='categorical', random_state=0, n_PCA_components=50
     , s=100, legend=True):
@@ -372,7 +445,7 @@ def do_UMAP_PCA_reduced_set_n_neighbors(data, data_labels
 
     return X_embeddings, (f, axs)
 
-################################################################################
+#------------------------------------------------------------------------------#
 '''
 data must have index corresponding to sampleIds in `sample_pair_lookup`
 
@@ -400,8 +473,26 @@ def plot_pairs_on_dr_embedding(data, sample_pair_lookup, ax_proj
     return
     # return f_proj, ax_proj
 
-################################################################################
+#------------------------------------------------------------------------------#
 # Prediction code
+'''
+Simple random forest model that returns OOB scores, and detailed dataframe of 
+results vs predictionss
+'''
+def random_forest_w_oob_scores(X, Y, n_estimators=100):
+    clf = RandomForestClassifier(n_estimators=n_estimators, oob_score=True)
+    clf.fit(X, Y)
+    # get predictions
+    oob_prediction_indx = np.argmax(clf.oob_decision_function_, axis=1)
+    oob_prediction_indx
+    class_mapping = dict(zip(
+        list(range(len(clf.classes_))), clf.classes_
+    ))
+    results = pd.DataFrame({'Y_test':Y, 'Y_pred': oob_prediction_indx})
+    results['Y_pred'] = results['Y_pred'].map(class_mapping)
+    return clf.oob_score_, results
+
+
 ''' 
 Train a random forest model and make 1 prediction
 @param X_train: training data, shape (n_samples, n_features)
@@ -483,13 +574,15 @@ Plot confusion matrix for counts and normalised.
 '''
 def plot_confusion_matrix(results, figsize=(12,4)
             , annotation_size=30
-            , n_PCA_components=None):
+            , n_PCA_components=None, suptitle=None):
     c_matrix_df, c_matrix_df_norm = get_confusion_matrix(results)
     
     f, axs = plt.subplots(1,2,figsize=figsize)
     if n_PCA_components is not None:
         f.suptitle("Confusion matrix using top {} PCA components"\
             .format(n_PCA_components))
+    if suptitle is not None:
+        f.suptitle(suptitle)
     
     # For the counts matrix, just return the numbers but without the color
     # Different classes have different sizes, so the colors are deceptive. 
