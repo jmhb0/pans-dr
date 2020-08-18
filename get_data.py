@@ -37,7 +37,7 @@ omics_pairing_col_width = 20
 dir_path = os.path.dirname(os.path.realpath(__file__))
 data_dir = '{}/data'.format(dir_path)
 
-################################################################################
+#------------------------------------------------------------------------------#
 # Phosphoflow code
 '''
 Read in data. Set `id` to index. Remove duplicates. Adjust some inconsistencies
@@ -129,9 +129,18 @@ def phosphoflow_get_clinical_data():
 	df_clinical = d.append(d_c)
 	df_clinical.index.name = 'sampleId'
 
+	# add group names consistent with other omic datasets
+	df_clinical['Group'] = ''
+	df_clinical.loc[df_clinical['is_control']==1, 'Group'] = 'Healthy Controls'
+	df_clinical.loc[(df_clinical['is_control']==0) & 
+		(df_clinical['is_flare']=='1'), 'Group'] = 'Flare Matched with remission'
+	df_clinical.loc[(df_clinical['is_control']==0) & 
+		(df_clinical['is_flare']=='0'), 'Group'] = 'Remission matched with flare'
+	df_clinical['Group'] 
+
 	return df_clinical
 
-################################################################################
+#------------------------------------------------------------------------------#
 # Pairing samples in phosphoflow data
 def phosphoflow_pairing_get_lookup(df_clinical, clean=True):
 	d = df_clinical[['patient_id', 'is_flare']]\
@@ -206,7 +215,7 @@ def phosphoflow_build_and_print_cell_tree(df, cols, cols_label1, cols_label2):
     tree_size_check = np.zeros(len(cols))
 
     cell_tree = treelib.Tree()
-    cell_tree_means = treelib.Tree() # second tree but I will print the means in the name as well 
+    cell_tree_means = treelib.Tree()
     root = "total live singlets"
     cell_tree.create_node(root, -1)
     cell_tree_means.create_node(root, -1)
@@ -222,16 +231,19 @@ def phosphoflow_build_and_print_cell_tree(df, cols, cols_label1, cols_label2):
         cell_name = cols_label1[i]
         parent_name = cols_label2[i]
 
-        # If parent is not already in the tree, move it to the back of the queue to be checked later.
+        # If parent is not already in the tree, move it to the back of the queue 
+        # to be checked later.
         if parent_name not in lookup.keys():
-            # First check if we've been through one cycle of the queue without adding any more nodes
-            # We know by storing the size of the tree from the last time we looked at this node. 
+            # First check if we've been through one cycle of the queue without 
+            # adding any more nodes. We know by storing the size of the tree 
+            # from the last time we looked at this node. 
             if tree_size_check[i] == cell_tree.size():
                 print("Terminating.")
                 print("Could not fit the following columns into the tree:")
                 assigned_cells = np.array(list(lookup.values()))
                 all_cell_indice = np.arange(len(cols))
-                unassigned_cells = np.isin(all_cell_indice, assigned_cells, invert=True)
+                unassigned_cells = np.isin(all_cell_indice, assigned_cells
+                	, invert=True)
                 print(cols[unassigned_cells])
                 break 
             # otherwise move items to back of the queue
@@ -240,19 +252,22 @@ def phosphoflow_build_and_print_cell_tree(df, cols, cols_label1, cols_label2):
                 cell_indices.append(i) 
                 continue
 
-        # We know this cell's parent is in the tree. Add it to the tree, and to the lookup. 
+        # We know this cell's parent is in the tree. Add it to the tree, 
+        # and to the lookup. 
         lookup[cell_name] = i 
         cell_tree.create_node(cell_name
                          , i 
                          , parent=lookup[parent_name]
                          , data=freq_means[col_name]
                              )
-        cell_tree_means.create_node("{:15s}\t\t{:.2f}".format(cell_name, freq_means[col_name])
+        cell_tree_means.create_node("{:15s}\t\t{:.2f}".format(cell_name
+        	, freq_means[col_name])
                          , i 
                          , parent=lookup[parent_name]
                          , data=freq_means[col_name]
                             )
-    print("Number of cells that are children of 'total live singlets' = {}".format(cell_tree_means.size()-1))    
+    print("Number of cells that are children of 'total live singlets' = {}"\
+    	.format(cell_tree_means.size()-1))    
     print("\n\nEntire tree with cell types + their means across all populations:\n")
     cell_tree_means.show()
     return cell_tree, lookup
@@ -275,14 +290,14 @@ def proteomics_get_data(drop_rows=None):
                     , header=list(range(proteomics_num_col_headers))
                     )
 
-	# Save col headers to `indx_cols`. Later will create a lookup frame this data 
+	# Save col headers to `indx_cols`. Later will create a lookup frame 
 	# But for the main data frame, we'll drop them, except `SeqId`
 	indx_cols = d.columns
 	d.columns = d.columns.droplevel(
 	    list(range(1,len(d.columns.levels)))
 	)
 
-	# Save rows headers to `indx_rows`. Later will create a lookup frame this data 
+	# Save rows headers to `indx_rows`. Later will create a lookup frame
 	# But for the main data frame, we'll drop them, except `SampleId`
 	indx_rows = d.index
 	delete_indx_row = list(indx_rows.names)
@@ -307,7 +322,7 @@ def proteomics_get_SampleId_lookup(indx_rows):
                     .set_index('SampleId')\
                     .transpose()\
                     .fillna('')
-	# TODO - less hacky version of below (the code is repeated for the main df index)
+	# TODO - less hacky version of below 
 	SampleId_lookup = SampleId_lookup.transpose() 
 	tmp_indx = SampleId_lookup.index.str.split('_')
 	tmp_indx = [np.flip(np.array(z))[0] for z in tmp_indx] # gross
@@ -327,7 +342,7 @@ def proteomics_get_SeqId_lookup(indx_cols):
 	                .set_index('SeqId')
 	return SeqId_lookup 
 
-################################################################################
+#------------------------------------------------------------------------------#
 # metabolomics
 '''
 @param drop_rows: list/array of row indices to remove. Is for removing data
@@ -404,14 +419,15 @@ def metabolomics_get_PathwaySo_lookup():
 	PathwaySo_lookup.index.name = "PathwaySo"
 	return PathwaySo_lookup
 
-################################################################################
+#------------------------------------------------------------------------------#
 # Pairing samples in proteomics & metabolomics datasets
 def omics_pairing_get_lookup():
 	d = pd.read_csv('{}/{}'.format(data_dir, fname_omics_pairing)
 			, usecols=list(range(omics_pairing_col_width))
 		)
-	# d = pd.read_csv(fname_omics_pairing, usecols=list(range(omics_pairing_col_width)))
-	d= d[['Unique Sample ID \n(as labeled on tube)','Unique Sample ID \n(as labeled on tube).1']]
+
+	d= d[['Unique Sample ID \n(as labeled on tube)'
+			,'Unique Sample ID \n(as labeled on tube).1']]
 	d.columns = ['sampleId-flare', 'sampleId-remission']
 	d = d.dropna().set_index('sampleId-flare', drop=False)
 	return d

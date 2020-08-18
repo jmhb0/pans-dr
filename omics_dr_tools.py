@@ -6,6 +6,7 @@ from matplotlib.colors import ListedColormap
 import seaborn as sns
 from collections import OrderedDict
 import logging
+import itertools 
 
 from sklearn.linear_model import LinearRegression
 from sklearn.decomposition import TruncatedSVD
@@ -13,9 +14,9 @@ from sklearn.metrics import confusion_matrix
 from sklearn.manifold import TSNE
 import umap
 
-# Funcs for prediction
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.model_selection import LeaveOneOut
+from sklearn.model_selection import RandomizedSearchCV
 
 from IPython.display import HTML
 
@@ -144,8 +145,8 @@ continuous/gradient data.
 
 @param data_labels: dataframe/series/array with shape (n_samples,). Data that 
     will define the coloring.
-@param data_label_dtype: 'categorical' or 'continuous'. Whether the colors just show 
-    discrete groups or whether we wish to plot a gradient
+@param data_label_dtype: 'categorical' or 'continuous'. Whether the colors just 
+    show discrete groups or whether we wish to plot a gradient
 
 returns: 
     colors: list of colors to pass to axs.scatter(). Has shape (n_samples,1)
@@ -193,49 +194,53 @@ Object for `get_data_groupings`
 '''
 GROUPING_LABEL_MAP = {
     1 : {
-        'drop' : []
+        'drop' : ['']
         , 'mapping' : {
             'Flare Only' : 'F'
+            , 'Flare' : 'F'
             , 'Flare Matched with remission' : 'F Match'
             , 'Remission matched with flare' : 'R Match'
             , 'Healthy Controls' : 'HC'        
         }
     }
     , 2 : {
-        'drop' : []
+        'drop' : ['']
         , 'mapping' : {
             'Flare Only' : 'F'
+            , 'Flare' : 'F'
             , 'Flare Matched with remission' : 'F'
             , 'Remission matched with flare' : 'Not-F'
             , 'Healthy Controls' : 'Not-F'        
         }
     }
     , 3 : {
-        'drop' : []
+        'drop' : ['']
         , 'mapping' : {
             'Flare Only' : 'Not-HC'
+            , 'Flare' : 'Not-HC'
             , 'Flare Matched with remission' : 'Not-HC'
             , 'Remission matched with flare' : 'Not-HC'
             , 'Healthy Controls' : 'HC'        
         }
     }
     , 4 : {
-        'drop' : ['Remission matched with flare']
+        'drop' : ['Remission matched with flare', '']
         , 'mapping' : {
             'Flare Only' : 'F'
+            , 'Flare' : 'F'
             , 'Flare Matched with remission' : 'F'
             , 'Healthy Controls' : 'HC'        
         }
     }
     , 5 : {
-        'drop' : ['Flare Only', 'Healthy Controls']
+        'drop' : ['Flare Only', 'Flare', 'Healthy Controls', '']
         , 'mapping' : {
             'Flare Matched with remission' : 'F Match'
             , 'Remission matched with flare' : 'R Match'
         }
     }
     , 6 : {
-        'drop' : ['Flare Only', 'Flare Matched with remission']
+        'drop' : ['Flare Only', 'Flare', 'Flare Matched with remission', '']
         , 'mapping' : {
             'Remission matched with flare' : 'R Match'
             , 'Healthy Controls' : 'HC'        
@@ -250,13 +255,13 @@ Use GROUPING_LABEL_MAP
     data - filtered data 
     data_labels - mapped labels
 '''
-def get_data_groupings(data, ClientId_lookup, grouping):
+def get_data_groupings(data, ClientId_lookup, grouping, group_key='Group'):
     assert grouping in (1,2,3,4,5,6)
     drop_row_vals = GROUPING_LABEL_MAP[grouping]['drop']
     mapping = GROUPING_LABEL_MAP[grouping]['mapping']
 
-    data_labels = ClientId_lookup.loc[data.index]['Group']
-    data_labels = data_labels[ ~data_labels.isin(drop_row_vals)]
+    data_labels = ClientId_lookup.loc[data.index][group_key]
+    data_labels = data_labels[~data_labels.isin(drop_row_vals)]
     data_labels = data_labels.map(mapping)
     
     return data.loc[data_labels.index], data_labels
@@ -479,12 +484,12 @@ def plot_pairs_on_dr_embedding(data, sample_pair_lookup, ax_proj
 Simple random forest model that returns OOB scores, and detailed dataframe of 
 results vs predictionss
 '''
-def random_forest_w_oob_scores(X, Y, n_estimators=100):
-    clf = RandomForestClassifier(n_estimators=n_estimators, oob_score=True)
+def random_forest_w_oob_scores(X, Y, **kwargs):
+    # kwargs['oob_score'] = True
+    clf = RandomForestClassifier(oob_score=True, **kwargs)
     clf.fit(X, Y)
     # get predictions
     oob_prediction_indx = np.argmax(clf.oob_decision_function_, axis=1)
-    oob_prediction_indx
     class_mapping = dict(zip(
         list(range(len(clf.classes_))), clf.classes_
     ))
@@ -572,8 +577,7 @@ def get_confusion_matrix(results):
 '''
 Plot confusion matrix for counts and normalised.
 '''
-def plot_confusion_matrix(results, figsize=(12,4)
-            , annotation_size=30
+def plot_confusion_matrix(results, figsize=(12,4), annotation_size=30
             , n_PCA_components=None, suptitle=None):
     c_matrix_df, c_matrix_df_norm = get_confusion_matrix(results)
     
@@ -605,5 +609,64 @@ def plot_confusion_matrix(results, figsize=(12,4)
     return f, axs
 
 
+def tune_simple_rf_model_randomCV(data, data_labels, n_iter=30, cv=10, verbose=1
+        , random_state=0):
+    n_estimators_ = [100,500]
+    max_features_ = list(np.arange(0, 1,0.2)+0.2)
+    max_depth_ = [2,5,20,50,100,None]
+    min_samples_split_ = [2,3,5]
+    min_samples_leaf_ = [1,2,5]
 
+    param_distributions = {'n_estimators': n_estimators,
+                   'max_features': max_features,
+                   'max_depth': max_depth,
+                   'min_samples_split': min_samples_split,
+                   'min_samples_leaf': min_samples_leaf,
+           }
+    clf = RandomForestClassifier(oob_score=True)
+    rf_random = RandomizedSearchCV(estimator = clf
+        , param_distributions=param_distributions, n_iter=n_iter, cv=cv
+        , verbose=verbose, random_state=random_state)
+    # Fit the random search model
+    rf_random.fit(data, data_labels)
+    return rf_random.best_params_, rf_random.best_score_
 
+'''
+.
+'''
+def tune_simple_rf_w_exhaustiveOob(data, data_labels):
+    n_estimators_ = [100,500]
+    max_features_ = list(np.arange(0, 1,0.2)+0.2)
+    max_depth_ = [2,5,20,50,100,None]
+    min_samples_split_ = [2,3,5]
+    min_samples_leaf_ = [1,2,5]
+
+    param_distributions = {'n_estimators': n_estimators_,
+                   'max_features': max_features_,
+                   'max_depth': max_depth_,
+                   'min_samples_split': min_samples_split_,
+                   'min_samples_leaf': min_samples_leaf_,
+           }
+    p_keys = list(param_distributions.keys())
+    p_values = param_distributions.values()
+
+    # exhaustive grid search
+    best_score = 0
+    best_params = {}
+
+    cnt = 1
+    for val in itertools.product(*p_values):
+        if cnt%100==0: print("cnt:{}, score:{:.2f}".format(cnt, best_score))
+        cnt+=1
+        # get parameters to try for this iteration
+        params = {}
+        for i in range(len(p_keys)):
+            params[p_keys[i]] = val[i]
+
+        clf = RandomForestClassifier(oob_score=True, random_state=0, **params)
+        clf.fit(data, data_labels)
+        score = clf.oob_score_
+        if score > best_score:
+            best_score = score
+            best_params = params
+    return best_params, best_score
