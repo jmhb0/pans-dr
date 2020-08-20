@@ -387,15 +387,14 @@ def metabolomics_get_data(drop_rows=None):
 '''
 TODO
 '''
-def metabolomics_get_ClientId_lookup(indx_cols):
-	ClientId_lookup = indx_cols.to_frame(index=False)
-	new_cols = ClientId_lookup.iloc[0]
+def metabolomics_get_SampleId_lookup(indx_cols):
+	SampleId_lookup = indx_cols.to_frame(index=False)
+	new_cols = SampleId_lookup.iloc[0]
 	new_cols[-1] = 'Group'
-	ClientId_lookup.columns = new_cols
-	ClientId_lookup
-	ClientId_lookup = ClientId_lookup.drop(0).set_index('CLIENT IDENTIFIER')
-	ClientId_lookup.index.name = 'ClientId'
-	return ClientId_lookup 
+	SampleId_lookup.columns = new_cols
+	SampleId_lookup = SampleId_lookup.drop(0).set_index('CLIENT IDENTIFIER')
+	SampleId_lookup.index.name = 'SampleId'
+	return SampleId_lookup 
 
 '''
 TODO

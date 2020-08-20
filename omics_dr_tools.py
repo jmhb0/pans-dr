@@ -7,6 +7,8 @@ import seaborn as sns
 from collections import OrderedDict
 import logging
 import itertools 
+import os
+import json
 
 from sklearn.linear_model import LinearRegression
 from sklearn.decomposition import TruncatedSVD
@@ -19,6 +21,8 @@ from sklearn.model_selection import LeaveOneOut
 from sklearn.model_selection import RandomizedSearchCV
 
 from IPython.display import HTML
+
+dir_path = os.path.dirname(os.path.realpath(__file__))
 
 ''' 
 Constant to be used by Jupyter nb's. Creates a button/toggle
@@ -190,65 +194,6 @@ def get_coloring_and_legend(data_labels, data_label_dtype='categorical'):
 
 #------------------------------------------------------------------------------#
 '''
-Object for `get_data_groupings`
-'''
-GROUPING_LABEL_MAP = {
-    1 : {
-        'drop' : ['']
-        , 'mapping' : {
-            'Flare Only' : 'F'
-            , 'Flare' : 'F'
-            , 'Flare Matched with remission' : 'F Match'
-            , 'Remission matched with flare' : 'R Match'
-            , 'Healthy Controls' : 'HC'        
-        }
-    }
-    , 2 : {
-        'drop' : ['']
-        , 'mapping' : {
-            'Flare Only' : 'F'
-            , 'Flare' : 'F'
-            , 'Flare Matched with remission' : 'F'
-            , 'Remission matched with flare' : 'Not-F'
-            , 'Healthy Controls' : 'Not-F'        
-        }
-    }
-    , 3 : {
-        'drop' : ['']
-        , 'mapping' : {
-            'Flare Only' : 'Not-HC'
-            , 'Flare' : 'Not-HC'
-            , 'Flare Matched with remission' : 'Not-HC'
-            , 'Remission matched with flare' : 'Not-HC'
-            , 'Healthy Controls' : 'HC'        
-        }
-    }
-    , 4 : {
-        'drop' : ['Remission matched with flare', '']
-        , 'mapping' : {
-            'Flare Only' : 'F'
-            , 'Flare' : 'F'
-            , 'Flare Matched with remission' : 'F'
-            , 'Healthy Controls' : 'HC'        
-        }
-    }
-    , 5 : {
-        'drop' : ['Flare Only', 'Flare', 'Healthy Controls', '']
-        , 'mapping' : {
-            'Flare Matched with remission' : 'F Match'
-            , 'Remission matched with flare' : 'R Match'
-        }
-    }
-    , 6 : {
-        'drop' : ['Flare Only', 'Flare', 'Flare Matched with remission', '']
-        , 'mapping' : {
-            'Remission matched with flare' : 'R Match'
-            , 'Healthy Controls' : 'HC'        
-        }
-    }
-}
-
-'''
 Use GROUPING_LABEL_MAP
 @param data: a DataFrame
 @ returns 
@@ -256,7 +201,10 @@ Use GROUPING_LABEL_MAP
     data_labels - mapped labels
 '''
 def get_data_groupings(data, ClientId_lookup, grouping, group_key='Group'):
-    assert grouping in (1,2,3,4,5,6)
+    grouping = str(grouping)
+    assert grouping in ("1","2","3","4","5","6","7")
+    with open('{}/group-mappings.json'.format(dir_path)) as f:
+        GROUPING_LABEL_MAP = json.load(f)
     drop_row_vals = GROUPING_LABEL_MAP[grouping]['drop']
     mapping = GROUPING_LABEL_MAP[grouping]['mapping']
 
@@ -497,7 +445,6 @@ def random_forest_w_oob_scores(X, Y, **kwargs):
     results['Y_pred'] = results['Y_pred'].map(class_mapping)
     return clf.oob_score_, results
 
-
 ''' 
 Train a random forest model and make 1 prediction
 @param X_train: training data, shape (n_samples, n_features)
@@ -638,14 +585,14 @@ def tune_simple_rf_w_exhaustiveOob(data, data_labels):
     n_estimators_ = [100,500]
     max_features_ = list(np.arange(0, 1,0.2)+0.2)
     max_depth_ = [2,5,20,50,100,None]
-    min_samples_split_ = [2,3,5]
-    min_samples_leaf_ = [1,2,5]
+    # min_samples_split_ = [2,3,5]
+    # min_samples_leaf_ = [1,2,5]
 
     param_distributions = {'n_estimators': n_estimators_,
                    'max_features': max_features_,
                    'max_depth': max_depth_,
-                   'min_samples_split': min_samples_split_,
-                   'min_samples_leaf': min_samples_leaf_,
+                   # 'min_samples_split': min_samples_split_,
+                   # 'min_samples_leaf': min_samples_leaf_,
            }
     p_keys = list(param_distributions.keys())
     p_values = param_distributions.values()

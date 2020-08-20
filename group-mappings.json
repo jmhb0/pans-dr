@@ -1,0 +1,64 @@
+{
+    "1" : {
+        "drop" : [""]
+        , "mapping" : {
+            "Flare Only" : "F"
+            , "Flare" : "F"
+            , "Flare Matched with remission" : "F Match"
+            , "Remission matched with flare" : "R Match"
+            , "Healthy Controls" : "HC"        
+        }
+    }
+    , "2" : {
+        "drop" : [""]
+        , "mapping" : {
+            "Flare Only" : "F"
+            , "Flare" : "F"
+            , "Flare Matched with remission" : "F"
+            , "Remission matched with flare" : "Not-F"
+            , "Healthy Controls" : "Not-F"        
+        }
+    }
+    , "3" : {
+        "drop" : [""]
+        , "mapping" : {
+            "Flare Only" : "Not-HC"
+            , "Flare" : "Not-HC"
+            , "Flare Matched with remission" : "Not-HC"
+            , "Remission matched with flare" : "Not-HC"
+            , "Healthy Controls" : "HC"        
+        }
+    }
+    , "4" : {
+        "drop" : ["Remission matched with flare", ""]
+        , "mapping" : {
+            "Flare Only" : "F"
+            , "Flare" : "F"
+            , "Flare Matched with remission" : "F"
+            , "Healthy Controls" : "HC"        
+        }
+    }
+    , "5" : {
+        "drop" : ["Flare Only", "Flare", "Healthy Controls", ""]
+        , "mapping" : {
+            "Flare Matched with remission" : "F Match"
+            , "Remission matched with flare" : "R Match"
+        }
+    }
+    , "6" : {
+        "drop" : ["Flare Only", "Flare", "Flare Matched with remission", ""]
+        , "mapping" : {
+            "Remission matched with flare" : "R Match"
+            , "Healthy Controls" : "HC"        
+        }
+    }
+    , "7" : {
+        "drop" : ["Healthy Controls", ""]
+        , "mapping" : {
+             "Flare Only" : "F"
+            , "Flare" : "F"
+            , "Flare Matched with remission" : "F"
+            , "Remission matched with flare" : "R"
+        }
+    }
+}
