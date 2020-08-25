@@ -306,7 +306,8 @@ def proteomics_get_data(drop_rows=None):
 	        .drop('SeqId',axis=1)
 	d.columns.name = 'SeqId'
 
-	d = d.drop(drop_rows, axis=0)
+	if drop_rows is not None:
+		d = d.drop(drop_rows, axis=0)
 	d_indx_split = d.index.str.split('_')
 	d_indx_splt_filt = [np.flip(np.array(z))[0] for z in d_indx_split] # gross
 	d.index = d_indx_splt_filt
@@ -379,7 +380,7 @@ def metabolomics_get_data(drop_rows=None):
 
 	d = d.drop(['CLIENT IDENTIFIER'],axis=1)
 
-	d.columns.name = 'ClientId'
+	d.columns.name = 'SampleId'
 	d.index.name = 'PathwaySo'
 
 	return d.transpose(), None, indx_cols
@@ -393,7 +394,7 @@ def metabolomics_get_SampleId_lookup(indx_cols):
 	new_cols[-1] = 'Group'
 	SampleId_lookup.columns = new_cols
 	SampleId_lookup = SampleId_lookup.drop(0).set_index('CLIENT IDENTIFIER')
-	SampleId_lookup.index.name = 'SampleId'
+	SampleId_lookup.index.name = 'SampleId_lookup'
 	return SampleId_lookup 
 
 '''

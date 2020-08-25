@@ -19,6 +19,7 @@ import umap
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.model_selection import LeaveOneOut
 from sklearn.model_selection import RandomizedSearchCV
+from sklearn.metrics import balanced_accuracy_score, matthews_corrcoef
 
 from IPython.display import HTML
 
@@ -193,6 +194,13 @@ def get_coloring_and_legend(data_labels, data_label_dtype='categorical'):
     return colors, patches
 
 #------------------------------------------------------------------------------#
+def get_grouping_label_map(grouping):
+    with open('{}/group-mappings.json'.format(dir_path)) as f:
+        GROUPING_LABEL_MAP = json.load(f)
+    drop_row_vals = GROUPING_LABEL_MAP[grouping]['drop']
+    mapping = GROUPING_LABEL_MAP[grouping]['mapping']
+    return drop_row_vals, mapping
+
 '''
 Use GROUPING_LABEL_MAP
 @param data: a DataFrame
@@ -200,19 +208,46 @@ Use GROUPING_LABEL_MAP
     data - filtered data 
     data_labels - mapped labels
 '''
-def get_data_groupings(data, ClientId_lookup, grouping, group_key='Group'):
+def get_data_groupings(data, SampleId_lookup, grouping, group_key='Group'):
     grouping = str(grouping)
     assert grouping in ("1","2","3","4","5","6","7")
-    with open('{}/group-mappings.json'.format(dir_path)) as f:
-        GROUPING_LABEL_MAP = json.load(f)
-    drop_row_vals = GROUPING_LABEL_MAP[grouping]['drop']
-    mapping = GROUPING_LABEL_MAP[grouping]['mapping']
+    drop_row_vals, mapping = get_grouping_label_map(grouping)
 
-    data_labels = ClientId_lookup.loc[data.index][group_key]
+    data_labels = SampleId_lookup.loc[data.index][group_key]
     data_labels = data_labels[~data_labels.isin(drop_row_vals)]
     data_labels = data_labels.map(mapping)
     
     return data.loc[data_labels.index], data_labels
+
+'''
+For each distinct group in data_labels, get `n_p_class` number of samples. Put 
+them in a training set. Put the others in a test set. Return data and data_labels
+for both
+'''
+def split_training_samples(data, data_labels, n_p_class=5, group_key='Group'):
+    all_ids = data.index
+    training_ids = data_labels.groupby(data_labels)\
+                .apply(lambda x: x.sample(n_p_class, replace=False))\
+                .index.get_level_values(1).values
+    
+    data_train = data.loc[all_ids.difference(training_ids)]
+    data_labels_train = data_labels.loc[all_ids.difference(training_ids)]
+    data_test = data.loc[training_ids]
+    data_labels_test = data_labels.loc[training_ids]
+    return data_train, data_labels_train, data_test, data_labels_test
+
+def recover_training_split_from_ids(data, train_sample_ids
+            , test_sample_ids, SampleId_lookup, grouping, group_key='Group'):
+    grouping = str(grouping)
+    assert grouping in ("1","2","3","4","5","6","7")
+    drop_row_vals, mapping = get_grouping_label_map(grouping)
+    
+    data_train = data.loc[train_sample_ids]
+    data_labels_train = SampleId_lookup.loc[train_sample_ids, group_key].map(mapping)
+
+    data_test = data.loc[test_sample_ids]
+    data_labels_test = SampleId_lookup.loc[test_sample_ids, group_key].map(mapping)
+    return data_train, data_labels_train, data_test, data_labels_test
 
 #------------------------------------------------------------------------------#
 # PCA 
@@ -266,7 +301,11 @@ def do_pca(data, data_labels=None, data_to_project=None
         PC_Y = PC_projection[:, plot_pc_proj_Y-1]
         
         # Get coloring of data points based on 'SampleGroup'
-        color, patches = get_coloring_and_legend(data_labels)
+        if data_labels is not None:
+            color, patches = get_coloring_and_legend(data_labels)
+        else:
+            color, patches = ['k']*data.shape[0]\
+                    , [mpatches.Patch(color='k', label='')]
         
         # do the plotting
         f_proj, ax_proj = plt.subplots(1,1, figsize=figsize_proj)
@@ -429,21 +468,42 @@ def plot_pairs_on_dr_embedding(data, sample_pair_lookup, ax_proj
 #------------------------------------------------------------------------------#
 # Prediction code
 '''
-Simple random forest model that returns OOB scores, and detailed dataframe of 
-results vs predictionss
+.
 '''
-def random_forest_w_oob_scores(X, Y, **kwargs):
-    # kwargs['oob_score'] = True
-    clf = RandomForestClassifier(oob_score=True, **kwargs)
-    clf.fit(X, Y)
-    # get predictions
+def get_oob_results(clf, Y):
     oob_prediction_indx = np.argmax(clf.oob_decision_function_, axis=1)
     class_mapping = dict(zip(
         list(range(len(clf.classes_))), clf.classes_
     ))
-    results = pd.DataFrame({'Y_test':Y, 'Y_pred': oob_prediction_indx})
-    results['Y_pred'] = results['Y_pred'].map(class_mapping)
-    return clf.oob_score_, results
+    Y_pred = np.vectorize(class_mapping.get)(oob_prediction_indx)
+    results = pd.DataFrame({
+                'Y_test':Y
+                ,'Y_pred': Y_pred
+                })
+    return results
+
+'''
+Simple random forest model that returns OOB scores, and detailed dataframe of 
+results vs predictions
+
+Note: random_state=0
+'''
+def random_forest_w_oob_scores(X, Y, **kwargs):
+    clf = RandomForestClassifier(oob_score=True, random_state=0, **kwargs)
+    clf.fit(X, Y)
+    results = get_oob_results(clf, Y)
+    return results, (clf.oob_score_, clf.feature_importances_)
+
+'''
+metric: from package `sklearn.metrics` or implementing that interface
+    e.g. balanced_accuracy_score, matthews_corrcoef
+'''
+def rf_get_oob_score(X, Y, metric=matthews_corrcoef, **kwargs):
+    clf = RandomForestClassifier(oob_score=True, **kwargs)
+    clf.fit(X,Y)
+    results = get_oob_results(clf, Y)
+    return metric(results['Y_pred'], results['Y_test'])
+
 
 ''' 
 Train a random forest model and make 1 prediction
@@ -555,7 +615,6 @@ def plot_confusion_matrix(results, figsize=(12,4), annotation_size=30
     
     return f, axs
 
-
 def tune_simple_rf_model_randomCV(data, data_labels, n_iter=30, cv=10, verbose=1
         , random_state=0):
     n_estimators_ = [100,500]
@@ -617,3 +676,178 @@ def tune_simple_rf_w_exhaustiveOob(data, data_labels):
             best_score = score
             best_params = params
     return best_params, best_score
+
+'''
+'''
+def run_n_estimators_convergence_test(X, Y):
+    n_estimators_ = np.hstack((
+        np.arange(0,200,20)+20
+        , np.arange(0,5000,200)+100
+    ))
+
+    f, axs = plt.subplots(3,3, sharex=True, sharey=True, figsize=(10,10))
+    axs = axs.flatten()
+    f.add_subplot(111, frameon=False)
+    plt.tick_params(labelcolor='none', top=False, bottom=False
+                    , left=False, right=False)
+
+    plt.xlabel("n_estimators")
+    plt.ylabel("Error score (balanced accuracy")
+    plt.title("Error due to n_estimators for random RF parameter sets")
+    plt.setp(axs, ylim=[0,1])
+
+    # iterate over axes 
+    for n, ax in enumerate(axs):
+        scores = np.zeros(n_estimators_.shape[0])
+        # fixed set of parameters per chart
+        params = get_random_rf_hyperparams()
+        for i, n_estimators in enumerate(n_estimators_):
+            params['n_estimators'] = n_estimators
+            scores[i] = rf_get_oob_score(X, Y
+                , metric=balanced_accuracy_score, **params)
+        ax.plot(n_estimators_, scores)
+    return f, axs
+
+'''
+will only run this <100 times, so it's not a big deal to 
+do the unnecessary computation
+'''
+def get_random_rf_hyperparams():
+    max_features_ = np.arange(0,1,0.1)+0.1
+    max_depth_ = [2,3,4,5,6, None]
+    min_samples_split_ = [2,3,4,5]
+    min_samples_leaf_ = [1,2,3,4]
+    param_distributions = {
+        'max_features': max_features_
+        ,'max_depth': max_depth_
+        ,'min_samples_split': min_samples_split_
+        ,'min_samples_leaf': min_samples_leaf_ ,
+    }
+
+    params = {}
+    for k, v in param_distributions.items():
+        params[k] = np.random.choice(v)
+    return params
+
+
+'''
+
+'''
+def random_search_param_space(X, Y, n_iter=60
+            , n_estimators=250, metric=balanced_accuracy_score):
+    all_params = {}
+    all_scores = {}
+    for k in range(n_iter):
+        all_params[k] = get_random_rf_hyperparams()
+        all_params[k]['n_estimators'] = n_estimators
+        all_scores[k] = rf_get_oob_score(X, Y, metric=metric, **all_params[k])
+
+    k_max = max(all_scores, key=all_scores.get)
+    best_params = all_params[k_max]
+    best_score = all_scores[k_max]
+    
+    return best_score, best_params
+
+'''
+Run against test data
+'''
+def run_rf_test(data_train, data_labels_train, data_test, data_labels_test,
+                **params):
+    clf = RandomForestClassifier(random_state=0, **params)
+    clf.fit(data_train, data_labels_train)
+    data_labels_predictions = clf.predict(data_test)
+    results = pd.DataFrame({
+                    'Y_test':data_labels_test
+                    ,'Y_pred': data_labels_predictions
+                    })
+    return results
+
+#------------------------------------------------------------------------------#
+# Run all the things
+def full_analysis_all_groupings_all_features(df, SampleId_lookup
+        , n_iter=80, n_estimators=250, group_key='Group'):
+    all_best_scores, all_best_params = {}, {}
+    all_train_sample_ids, all_test_sample_ids = {}, {}
+    all_best_results_validation, all_best_results_test = {}, {}
+    all_feature_importances = {}
+    print("Grouping: ",end='')
+    for grouping in (2,3,4,5,6,7): 
+        print("{},".format(grouping), end=' ')
+        # get data labeling according to groups, and split up the train and test set 
+        data, data_labels = get_data_groupings(df, SampleId_lookup, grouping, group_key=group_key)
+        data_train, data_labels_train, data_test, data_labels_test \
+                = split_training_samples(data, data_labels, n_p_class=5)
+
+        all_train_sample_ids[grouping] = data_train.index
+        all_test_sample_ids[grouping] = data_test.index
+
+        # do random search on the parameter grid 
+        all_best_scores[grouping], all_best_params[grouping] \
+                = random_search_param_space(data_train, data_labels_train, n_iter=n_iter
+                        , n_estimators=n_estimators, metric=balanced_accuracy_score)
+
+        # for the best_params, compute the `results` DataFrame and store it for 
+        # validation set, and against the test set
+        results_validation, (_, feature_importances) \
+            = random_forest_w_oob_scores(data_train, data_labels_train, **all_best_params[grouping])
+        all_best_results_validation[grouping] = results_validation
+        all_feature_importances[grouping] = feature_importances
+
+        results_test = run_rf_test(data_train, data_labels_train, data_test, data_labels_test, **all_best_params[grouping])
+        all_best_results_test[grouping] = results_test
+
+    return dict(
+         n_iter=n_iter
+        , n_estimators=n_estimators
+        , all_best_scores=all_best_scores
+        , all_best_params=all_best_params
+        , all_train_sample_ids=all_train_sample_ids
+        , all_test_sample_ids=all_test_sample_ids
+        , all_best_results_validation=all_best_results_validation
+        , all_best_results_test=all_best_results_test
+        , feature_importances=feature_importances
+    )
+
+def analyse_full_analysis_all_groupings_all_features(n_iter, n_estimators
+        , all_best_scores, all_best_params, all_train_sample_ids
+        , all_test_sample_ids, all_best_results_validation
+        , all_best_results_test, feature_importances=None, show_printout=True):
+    for grouping in (2,3,4,5,6,7):
+        results_validation = all_best_results_validation[grouping]
+        results_test = all_best_results_test[grouping]
+
+        mat_corr_validation = matthews_corrcoef(*results_validation.values.T)
+        bal_acc_validation = balanced_accuracy_score(*results_validation.values.T)
+        mat_corr_test = matthews_corrcoef(*results_test.values.T)
+        bal_acc_test = balanced_accuracy_score(*results_test.values.T)
+
+        f_v, ax_v = plot_confusion_matrix(results_validation, suptitle="Validation set: group {}"\
+                                                .format(grouping))
+
+        f_t, ax_t = plot_confusion_matrix(results_test, suptitle="Test set: group {}"\
+                                              .format(grouping))
+
+        if show_printout==True:
+            print("Grouping: {}".format(grouping))
+            print("Validation set")
+            print("\tMatthews Correlation: {:.2f}"\
+                  .format(mat_corr_validation))
+            print("\tBalanced accuracy score: {:.2f}"\
+                  .format(bal_acc_validation))
+
+            print("Test set")
+            print("\tMatthews Correlation: {:.2f}"\
+                  .format(mat_corr_test))
+            print("\tBalanced accuracy score: {:.2f}"\
+                  .format(bal_acc_test))
+            print('-'*80)
+
+        res_analye_full_results =  dict(
+            f_v=f_v, ax_v=ax_v, f_t=f_t, ax_t=ax_t
+            , mat_corr_validation=mat_corr_validation
+            , bal_acc_validatio=bal_acc_validation
+            , mat_corr_test=mat_corr_test
+            , bal_acc_test=bal_acc_test
+            )
+        return res_analye_full_results
+
