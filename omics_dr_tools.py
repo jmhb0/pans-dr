@@ -53,6 +53,13 @@ HIDE_CODE_HTML="""<script>
     </form>"""
 plt.rcParams['axes.prop_cycle'] = plt.cycler(color=["b", "y", "c", "k"]) 
 
+def standardize(df):
+    std = df.std(axis=0)
+    # remove features that have zero standard deviation
+    df = df.loc[:, std[std!=0].index]
+    # centre and standardise
+    return (df-df.mean(axis=0)) / df.std(axis=0)
+
 #------------------------------------------------------------------------------#
 # Variance stabalizing 
 ''' 
@@ -452,7 +459,7 @@ def plot_pairs_on_dr_embedding(data, sample_pair_lookup, ax_proj
 
     for flareId in sample_pair_lookup.index:
         remissionId = sample_pair_lookup.loc[flareId]['sampleId-remission']
-        
+            
         if flareId not in df_scatter_points.index:
             logging.warning("FlareId {} not in dataset".format(flareId))
             continue
@@ -475,10 +482,10 @@ def get_oob_results(clf, Y):
     class_mapping = dict(zip(
         list(range(len(clf.classes_))), clf.classes_
     ))
-    Y_pred = np.vectorize(class_mapping.get)(oob_prediction_indx)
+    y_pred = np.vectorize(class_mapping.get)(oob_prediction_indx)
     results = pd.DataFrame({
-                'Y_test':Y
-                ,'Y_pred': Y_pred
+                'y_true':Y
+                ,'y_pred': y_pred
                 })
     return results
 
@@ -502,7 +509,7 @@ def rf_get_oob_score(X, Y, metric=matthews_corrcoef, **kwargs):
     clf = RandomForestClassifier(oob_score=True, **kwargs)
     clf.fit(X,Y)
     results = get_oob_results(clf, Y)
-    return metric(results['Y_pred'], results['Y_test'])
+    return metric(results['y_pred'], results['y_true'])
 
 
 ''' 
@@ -546,7 +553,7 @@ def leave_out_out_prediction(data, data_labels, predict_model
 
     for train_index, test_index in loo.split(X):
         X_train, X_test = X[train_index], X[test_index]
-        Y_train, Y_test = Y[train_index], Y[test_index]
+        Y_train, y_true = Y[train_index], Y[test_index]
         
         # pass partial dataset to PCA, get projected data, project test data
         r_do_pca = do_pca(X_train
@@ -557,21 +564,21 @@ def leave_out_out_prediction(data, data_labels, predict_model
                 for k in ['PC_projection', 'PCs', 'shift'])
 
         X_test_projected = np.dot(PCs, (X_test-shift).transpose()).transpose()
-        Y_predict = predict_model(X_train_projected, Y_train
+        y_predict = predict_model(X_train_projected, Y_train
                 , X_test_projected, **kwargs)
 
-        results[test_index[0]][0] = Y_test[0][0]
-        results[test_index[0]][1] = Y_predict
+        results[test_index[0]][0] = y_true[0][0]
+        results[test_index[0]][1] = y_predict
         
-    return pd.DataFrame(results, columns=['Y_test', 'Y_pred'])  
+    return pd.DataFrame(results, columns=['y_true', 'y_pred'])  
 
 '''
 Take in data in the form given by `leave_out_out_prediction`
 and do summary statistics
 '''
 def get_confusion_matrix(results):
-    labels = np.sort(results['Y_test'].unique())
-    c_matrix = confusion_matrix(results['Y_test'], results['Y_pred']
+    labels = np.sort(results['y_true'].unique())
+    c_matrix = confusion_matrix(results['y_true'], results['y_pred']
                                 , labels=labels)
 
     # confusion matrix standard + normalised
@@ -757,22 +764,24 @@ def run_rf_test(data_train, data_labels_train, data_test, data_labels_test,
     clf.fit(data_train, data_labels_train)
     data_labels_predictions = clf.predict(data_test)
     results = pd.DataFrame({
-                    'Y_test':data_labels_test
-                    ,'Y_pred': data_labels_predictions
+                    'y_true':data_labels_test
+                    ,'y_pred': data_labels_predictions
                     })
     return results
 
 #------------------------------------------------------------------------------#
 # Run all the things
 def full_analysis_all_groupings_all_features(df, SampleId_lookup
-        , n_iter=80, n_estimators=250, group_key='Group'):
+        , n_iter=80, n_estimators=250, group_key='Group'
+        , metric=balanced_accuracy_score
+        , groupings=[2,3,4,5,6,7]):
     all_best_scores, all_best_params = {}, {}
     all_train_sample_ids, all_test_sample_ids = {}, {}
     all_best_results_validation, all_best_results_test = {}, {}
     all_feature_importances = {}
-    print("Grouping: ",end='')
-    for grouping in (2,3,4,5,6,7): 
-        print("{},".format(grouping), end=' ')
+    # print("Grouping: ",end='')
+    for grouping in groupings: 
+        # print("{},".format(grouping), end=' ')
         # get data labeling according to groups, and split up the train and test set 
         data, data_labels = get_data_groupings(df, SampleId_lookup, grouping, group_key=group_key)
         data_train, data_labels_train, data_test, data_labels_test \
@@ -784,7 +793,7 @@ def full_analysis_all_groupings_all_features(df, SampleId_lookup
         # do random search on the parameter grid 
         all_best_scores[grouping], all_best_params[grouping] \
                 = random_search_param_space(data_train, data_labels_train, n_iter=n_iter
-                        , n_estimators=n_estimators, metric=balanced_accuracy_score)
+                        , n_estimators=n_estimators, metric=metric)
 
         # for the best_params, compute the `results` DataFrame and store it for 
         # validation set, and against the test set
@@ -793,26 +802,31 @@ def full_analysis_all_groupings_all_features(df, SampleId_lookup
         all_best_results_validation[grouping] = results_validation
         all_feature_importances[grouping] = feature_importances
 
+        # Take tuned model from training data and run it on test data. This 
         results_test = run_rf_test(data_train, data_labels_train, data_test, data_labels_test, **all_best_params[grouping])
         all_best_results_test[grouping] = results_test
 
     return dict(
          n_iter=n_iter
         , n_estimators=n_estimators
+        , groupings=groupings
         , all_best_scores=all_best_scores
         , all_best_params=all_best_params
         , all_train_sample_ids=all_train_sample_ids
         , all_test_sample_ids=all_test_sample_ids
         , all_best_results_validation=all_best_results_validation
         , all_best_results_test=all_best_results_test
-        , feature_importances=feature_importances
+        , all_feature_importances=all_feature_importances
     )
 
 def analyse_full_analysis_all_groupings_all_features(n_iter, n_estimators
         , all_best_scores, all_best_params, all_train_sample_ids
-        , all_test_sample_ids, all_best_results_validation
-        , all_best_results_test, feature_importances=None, show_printout=True):
-    for grouping in (2,3,4,5,6,7):
+        , all_test_sample_ids, all_best_results_validation, groupings
+        , all_best_results_test, all_feature_importances=None
+        , show_printout=True, show_plots=True):
+    res_analye_full_results = {}
+    for grouping in groupings:
+        print(all_best_params[grouping])
         results_validation = all_best_results_validation[grouping]
         results_test = all_best_results_test[grouping]
 
@@ -821,11 +835,15 @@ def analyse_full_analysis_all_groupings_all_features(n_iter, n_estimators
         mat_corr_test = matthews_corrcoef(*results_test.values.T)
         bal_acc_test = balanced_accuracy_score(*results_test.values.T)
 
-        f_v, ax_v = plot_confusion_matrix(results_validation, suptitle="Validation set: group {}"\
-                                                .format(grouping))
+        f_v, ax_v, f_t, ax_t = None, None, None, None
+        if show_plots==True:
+            f_v, ax_v = plot_confusion_matrix(results_validation, suptitle="Validation set: group {}"\
+                                                    .format(grouping))
+            # plt.close()
 
-        f_t, ax_t = plot_confusion_matrix(results_test, suptitle="Test set: group {}"\
-                                              .format(grouping))
+            f_t, ax_t = plot_confusion_matrix(results_test, suptitle="Test set: group {}"\
+                                                  .format(grouping))
+            # plt.close()
 
         if show_printout==True:
             print("Grouping: {}".format(grouping))
@@ -842,12 +860,62 @@ def analyse_full_analysis_all_groupings_all_features(n_iter, n_estimators
                   .format(bal_acc_test))
             print('-'*80)
 
-        res_analye_full_results =  dict(
+        res_analye_full_results[grouping] =  dict(
             f_v=f_v, ax_v=ax_v, f_t=f_t, ax_t=ax_t
             , mat_corr_validation=mat_corr_validation
             , bal_acc_validatio=bal_acc_validation
             , mat_corr_test=mat_corr_test
             , bal_acc_test=bal_acc_test
             )
-        return res_analye_full_results
+    return res_analye_full_results
 
+
+'''
+Returns `Flare` minus `Remission`
+'''
+def get_difference_df(data, data_labels, sample_pair_lookup):
+    data_flare = data.loc[ data_labels[data_labels == 'F Match'].index ]
+    data_rem = data.loc[ data_labels[data_labels == 'R Match'].index ]
+
+    # Get `data_rem`, and join the lookup table so that `data_paired` is remission 
+    # data with the index of the paired flare sample.
+    data_paired = data_rem.join(
+        sample_pair_lookup.set_index('sampleId-remission')
+    ).set_index('sampleId-flare')
+
+    data_diff = data_flare - data_paired
+    return data_diff
+
+'''
+`data_diff` is the 'flare' minus 'remission'
+'''
+def do_diff_test_bac_score(data_diff, **params):
+    X = np.array(data_diff) 
+    m = X.shape[0]
+    loo = LeaveOneOut()
+    loo.get_n_splits(X)
+    results = np.empty((m*2,2), dtype="<U10") 
+    Y_train = np.array([1]*(m-1)+[-1]*(m-1))
+
+    clf = RandomForestClassifier(oob_score=True, **params)
+    for train_index, test_index in loo.split(X):
+        X_train, X_test = X[train_index], X[test_index]
+
+        clf.fit( np.vstack((X_train, -X_train)), Y_train)
+        results[test_index*2] = ['1', clf.predict(X_test)[0], ]
+        results[test_index*2+1] = ['-1', clf.predict(-X_test)[0]]
+
+    return results
+
+
+'''
+inplace=False
+'''
+def get_cum_score(results):
+    res = results.copy()
+    res['res'] = np.where(res['y_true'] == res['y_pred'], 1, 0)
+    # all_results_4.columns
+    res['count'] = pd.Series(range(len(res)), index=res.index.values)+1
+    res['cum_score'] = res['res'].cumsum() / res['count']
+    res.drop(columns='count')
+    return res
